@@ -6,15 +6,16 @@ authors = ["chengxiaohou <chengxiaohou@gmail.com>"]
 
 [tool.poetry.scripts]
 bili-subtitles = "bili_subtitles.cli:main"
+bili-subtitles-interactive = "bili_subtitles.interactive:main"
 
 [tool.poetry.dependencies]
 python = ">=3.10"
 requests = "^2.31.0"
 click = "^8.1.7"
 yt-dlp = "^2024.4.9"
-faster-whisper = "^0.10.0"
 beautifulsoup4 = "^4.12.3"
 lxml = "^5.2.1"
+sherpa-onnx = "^1.13.0"
 
 [build-system]
 requires = ["poetry-core>=1.0.0"]

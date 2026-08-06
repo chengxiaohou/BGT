@@ -4,6 +4,7 @@ import os
 import glob
 import shutil
 import tempfile
+import urllib.parse
 
 import requests
 import yt_dlp
@@ -51,11 +52,44 @@ def detect_installed_browsers() -> List[str]:
     ]
 
 
-def extract_bvid(url: str) -> str:
-    pattern = r'BV[a-zA-Z0-9]+'
-    match = re.search(pattern, url)
+def resolve_short_link(url: str, max_hops: int = 3) -> Optional[str]:
+    """解析 b23.tv 之类的短链，返回跳转后的完整链接。"""
+    current = url
+    for _ in range(max_hops):
+        try:
+            resp = requests.get(current, allow_redirects=False, headers=_HEADERS, timeout=10)
+        except requests.RequestException:
+            break
+        if resp.is_redirect:
+            location = resp.headers.get("Location")
+            if not location:
+                break
+            current = location if location.startswith("http") else urllib.parse.urljoin(current, location)
+            continue
+        return current
+    return current
+
+
+def extract_bvid(text: str) -> str:
+    """从粘贴内容（可能混有标题等文字）中识别出 BV 号。"""
+    if not text:
+        raise ValueError("输入内容为空")
+
+    # 先尽量从整段文本里挑出网址；挑不到则直接在全文里找 BV 号
+    url_match = re.search(r"https?://[^\s]+", text)
+    candidate = url_match.group(0).rstrip("，。,.;；、") if url_match else text
+
+    # b23.tv 短链先解析成完整链接
+    if "b23.tv" in candidate:
+        resolved = resolve_short_link(candidate)
+        if resolved:
+            candidate = resolved
+
+    # B 站 BV 号固定为 BV + 10 位字母数字
+    pattern = r"BV[0-9A-Za-z]{10}"
+    match = re.search(pattern, candidate)
     if not match:
-        raise ValueError("无法从URL中提取BV号")
+        raise ValueError("未能识别出B站视频链接，请确认粘贴内容包含 BV 号或 bilibili.com 链接")
     return match.group()
 
 
