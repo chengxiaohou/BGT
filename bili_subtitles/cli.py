@@ -91,7 +91,9 @@ def main(url: str, output: str, output_srt: str, cookies_file: str, browser: str
             else:
                 for warning in attempt_warnings:
                     click.echo(f"警告: {warning}", err=True)
-                if attempts and not cookies_file:
+                if any("Operation not permitted" in w for w in attempt_warnings):
+                    click.echo("提示: 读取 Safari 登录态需要在系统设置中开启“完全磁盘访问权限”，或改用 --cookies cookies.txt 直接指定登录态", err=True)
+                elif attempts and not cookies_file:
                     click.echo("提示: 如已在浏览器登录B站但仍未读到登录态，可手动指定 --browser chrome（或 edge/safari/firefox）", err=True)
                 # 2) 手动接口再试一次（针对少量无需登录即可见的 CC 字幕）
                 subtitles = get_subtitle_urls(bvid, cid)

@@ -30,6 +30,9 @@ SUBTITLE_LANG_NAMES = {
 # 自动读取登录态的浏览器优先级（Safari 优先）
 BROWSER_PRIORITY = ["safari", "chrome", "edge", "firefox", "brave", "chromium"]
 
+# 导出 Cookie 时只保留这些：登录态 + 设备指纹（B站接口风控用），其余一律不导出
+COOKIE_NAMES_KEEP = {"SESSDATA", "buvid3", "b_nut"}
+
 BROWSER_INSTALL_HINTS = {
     "safari": ["/Applications/Safari.app"],
     "chrome": ["/Applications/Google Chrome.app", os.path.expanduser("~/.config/google-chrome")],
@@ -160,6 +163,10 @@ def download_subtitles_with_ytdlp(
         shutil.rmtree(work_dir, ignore_errors=True)
         raise RuntimeError(f"yt-dlp 抓取字幕失败：{exc}") from exc
 
+    # yt-dlp 退出时会把会话中新收到的 Cookie 写回文件，这里再精简一次
+    if cookies_file:
+        _trim_cookie_file(cookies_file)
+
     srt_files = sorted(glob.glob(os.path.join(work_dir, "*.srt")))
     if not srt_files:
         shutil.rmtree(work_dir, ignore_errors=True)
@@ -190,10 +197,35 @@ def download_subtitles_with_ytdlp(
 
 
 def export_browser_cookies(browser: str, output_path: str) -> int:
-    """把指定浏览器的 Cookie 导出为 Netscape 格式文件（可配合 --cookies 长期使用），返回导出条数。"""
+    """把指定浏览器的 Cookie 导出为精简的 Netscape 格式文件，返回导出条数。
+
+    只保留 B 站登录所必需的少量 Cookie（登录态 SESSDATA + 设备指纹 buvid3/b_nut），
+    其余站点的 Cookie 一概不导出。
+    """
     jar = extract_cookies_from_browser(browser)
-    jar.save(filename=output_path, ignore_discard=True, ignore_expires=True)
-    return len(jar)
+    kept_jar = yt_dlp.cookies.YoutubeDLCookieJar()
+    for cookie in jar:
+        if "bilibili.com" in cookie.domain and cookie.name in COOKIE_NAMES_KEEP:
+            kept_jar.set_cookie(cookie)
+    kept_jar.save(filename=output_path, ignore_discard=True, ignore_expires=True)
+    return len(kept_jar)
+
+
+def _trim_cookie_file(cookies_file: str) -> None:
+    """把 Cookie 文件精简回白名单，去掉 yt-dlp 会话中自动写回的多余 Cookie。"""
+    jar = yt_dlp.cookies.YoutubeDLCookieJar(cookies_file)
+    try:
+        jar.load()
+    except Exception:
+        return
+    kept_jar = yt_dlp.cookies.YoutubeDLCookieJar()
+    for cookie in jar:
+        if "bilibili.com" in cookie.domain and cookie.name in COOKIE_NAMES_KEEP:
+            kept_jar.set_cookie(cookie)
+    try:
+        kept_jar.save(filename=cookies_file, ignore_discard=True, ignore_expires=True)
+    except Exception:
+        pass
 
 
 def srt_to_text(srt_content: str) -> str:
