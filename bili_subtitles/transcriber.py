@@ -1,3 +1,4 @@
+import datetime
 import sys
 import requests
 
@@ -54,3 +55,26 @@ def sanitize_filename(filename: str) -> str:
     for char in invalid_chars:
         filename = filename.replace(char, '_')
     return filename
+
+
+def build_output_filename(title: str, uploader: str = None, pubdate=None) -> str:
+    """按「发布日期_UP名_标题」拼接输出文件名，并清理非法字符。"""
+    parts = []
+    if pubdate:
+        parts.append(datetime.datetime.fromtimestamp(pubdate).strftime("%Y-%m-%d"))
+    if uploader:
+        parts.append(uploader)
+    parts.append(title)
+    return sanitize_filename("_".join(part for part in parts if part))
+
+
+def build_txt_header(title: str, uploader: str = None, pubdate=None) -> str:
+    """生成 txt 文件开头的信息头：标题 / 日期时间 / 发布者。"""
+    lines = []
+    if title:
+        lines.append(f"标题：{title}")
+    if pubdate:
+        lines.append(f"日期：{datetime.datetime.fromtimestamp(pubdate).strftime('%Y-%m-%d %H:%M')}")
+    if uploader:
+        lines.append(f"发布者：{uploader}")
+    return "\n".join(lines) + "\n\n"

@@ -11,7 +11,7 @@ from .bilibili import (
     export_browser_cookies,
     srt_to_text,
 )
-from .transcriber import save_as_srt, sanitize_filename
+from .transcriber import save_as_srt, sanitize_filename, build_output_filename, build_txt_header
 
 
 def _transcribe(audio_url: str, show_progress: bool) -> tuple:
@@ -30,7 +30,7 @@ def process_video(
     force_transcribe: bool = False,
     show_progress: bool = True,
 ) -> tuple:
-    """处理单个视频链接，返回 (text, segments, srt_content, title)。
+    """处理单个视频链接，返回 (text, segments, srt_content, title, uploader, pubdate)。
 
     segments 来自语音识别（带时间戳），srt_content 来自 yt-dlp 抓到的现成字幕。
     """
@@ -113,7 +113,9 @@ def process_video(
         else:
             raise ValueError("无法获取音频链接")
 
-    return text, segments, srt_content, title
+    uploader = (video_info.get("owner") or {}).get("name", "")
+    pubdate = video_info.get("pubdate")
+    return text, segments, srt_content, title, uploader, pubdate
 
 
 @click.command()
@@ -124,8 +126,9 @@ def process_video(
 @click.option("--browser", type=click.Choice(["chrome", "edge", "safari", "firefox", "brave", "chromium"]), help="从指定浏览器自动读取登录Cookie（不指定时自动检测）")
 @click.option("--export-cookies", "export_cookies", type=click.Path(), help="把浏览器登录Cookie导出为文件后退出（之后用 --cookies 指定，无需再开完全磁盘访问权限）")
 @click.option("--force-transcribe", "-f", is_flag=True, help="强制使用语音识别，不使用字幕")
+@click.option("--type", "output_type", type=click.Choice(["txt", "srt", "both"]), default="both", help="输出内容: txt（仅文本）/ srt（仅字幕）/ both（两者都要，默认）")
 @click.option("--no-progress", is_flag=True, help="不显示进度信息")
-def main(url: str, output: str, output_srt: str, cookies_file: str, browser: str, export_cookies: str, force_transcribe: bool, no_progress: bool):
+def main(url: str, output: str, output_srt: str, cookies_file: str, browser: str, export_cookies: str, force_transcribe: bool, output_type: str, no_progress: bool):
     try:
         # 导出 Cookie 后直接退出，不做抓取
         if export_cookies:
@@ -140,48 +143,47 @@ def main(url: str, output: str, output_srt: str, cookies_file: str, browser: str
             raise click.UsageError("缺少视频链接 URL")
 
         show_progress = not no_progress
-        text, segments, srt_content, title = process_video(
+        text, segments, srt_content, title, uploader, pubdate = process_video(
             url, cookies_file, browser, force_transcribe, show_progress
         )
 
-        # 使用视频标题作为默认文件名，默认保存到 output/ 目录
-        safe_title = sanitize_filename(title)
+        # 默认文件名：发布日期_UP名_标题，保存到 output/ 目录
+        safe_title = build_output_filename(title, uploader, pubdate)
         current_dir = os.path.abspath(".")
         output_dir = os.path.join(current_dir, "output")
         os.makedirs(output_dir, exist_ok=True)
-        
+
+        # 输出内容由 --type 决定；显式指定了 -o/-s 则视为需要对应文件
+        write_txt = output is not None or output_type in ("txt", "both")
+        write_srt = output_srt is not None or output_type in ("srt", "both")
+
         # 保存为纯文本
-        if output:
-            abs_output = os.path.abspath(output)
-        else:
-            abs_output = os.path.join(output_dir, f"{safe_title}.txt")
-        
-        with open(abs_output, "w", encoding="utf-8") as f:
-            f.write(text)
-        click.echo(f"✓ 文本已保存: {abs_output}")
-        
+        if write_txt:
+            if output:
+                abs_output = os.path.abspath(output)
+            else:
+                abs_output = os.path.join(output_dir, f"{safe_title}.txt")
+            with open(abs_output, "w", encoding="utf-8") as f:
+                f.write(build_txt_header(title, uploader, pubdate) + text)
+            click.echo(f"✓ 文本已保存: {abs_output}")
+
         # 保存为SRT格式
-        if segments:
+        if write_srt and (segments or srt_content):
             if output_srt:
                 abs_srt = os.path.abspath(output_srt)
             else:
                 abs_srt = os.path.join(output_dir, f"{safe_title}.srt")
-            
-            save_as_srt(segments, abs_srt)
-            click.echo(f"✓ SRT字幕已保存: {abs_srt}")
-        elif srt_content:
-            # yt-dlp 拿到的现成字幕也顺手存一份 SRT
-            if output_srt:
-                abs_srt = os.path.abspath(output_srt)
+            if segments:
+                save_as_srt(segments, abs_srt)
             else:
-                abs_srt = os.path.join(output_dir, f"{safe_title}.srt")
-            
-            with open(abs_srt, "w", encoding="utf-8") as f:
-                f.write(srt_content)
+                with open(abs_srt, "w", encoding="utf-8") as f:
+                    f.write(srt_content)
             click.echo(f"✓ SRT字幕已保存: {abs_srt}")
-        
-        # 显示文本内容（如果既没有指定output也没有指定srt）
-        if not output and not output_srt:
+        elif write_srt:
+            click.echo("⚠ 该视频没有可用的SRT时间轴数据，无法生成SRT", err=True)
+
+        # 显示文本内容（未指定输出文件且生成了txt时）
+        if not output and not output_srt and write_txt:
             click.echo("\n--- 视频文本内容 ---")
             click.echo(text)
             click.echo("--- 结束 ---")
