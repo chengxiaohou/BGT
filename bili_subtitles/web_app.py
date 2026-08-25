@@ -23,6 +23,7 @@ from .transcriber import build_output_filename, build_txt_header
 
 app = Flask(__name__)
 app.config["MAX_CONTENT_LENGTH"] = 1024 * 1024  # Cookie 文件最大 1MB
+app.config["TEMPLATES_AUTO_RELOAD"] = True  # 开发时模板修改自动生效
 
 
 def _process_video_web(url: str, cookies_file: str = None) -> dict:
