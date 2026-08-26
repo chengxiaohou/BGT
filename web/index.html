@@ -1004,7 +1004,7 @@
                 const resp = await fetch(WORKER_URL + '/api/up-videos', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ mid })
+                    body: JSON.stringify({ mid, name })
                 });
                 const data = await resp.json();
                 if (data.error) {

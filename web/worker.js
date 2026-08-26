@@ -448,12 +448,12 @@ async function handleUpVideos(request) {
   try {
     const body = await request.json();
     const mid = body.mid;
+    const name = body.name || "";
     if (!mid) return corsResponse({ error: "缺少 UP 主 ID" }, 400);
 
-    // 尝试多种方式获取视频列表
     let data = null;
 
-    // 方式1: 空间 API
+    // 方式1: 空间 API（通过 socket 直接请求）
     try {
       data = await biliApiGet(
         `https://api.bilibili.com/x/space/arc/search?mid=${mid}&ps=10&pn=1&order=pubdate`,
@@ -463,35 +463,40 @@ async function handleUpVideos(request) {
       else data = null;
     } catch (e) { data = null; }
 
-    // 方式2: 爬取空间页面的 HTML 提取初始状态数据
-    if (!data) {
+    // 方式2: 搜索该 UP 主的视频（通过搜索 type API）
+    if (!data && name) {
       try {
-        const htmlResp = await fetch(`https://space.bilibili.com/${mid}/video`, {
-          headers: BILI_HEADERS,
-        });
-        if (htmlResp.status === 200) {
-          const html = await htmlResp.text();
-          const match = html.match(/window\.__INITIAL_STATE__\s*=\s*({.+?});/);
-          if (match) {
-            const state = JSON.parse(match[1]);
-            const vlist = state?.videoData?.vlist || state?.videoList?.vlist || [];
-            if (vlist.length > 0) {
-              data = { code: 0, data: { list: { vlist: vlist.slice(0, 10) } } };
-            }
+        const searchData = await biliApiGet(
+          `https://api.bilibili.com/x/web-interface/search/type?search_type=video&keyword=${encodeURIComponent(name)}&ps=10&pn=1`,
+          await getBuvidCookies()
+        );
+        if (searchData && searchData.code === 0 && searchData.data?.result) {
+          // 过滤出该 UP 主的视频
+          const filtered = searchData.data.result.filter(v => String(v.mid) === String(mid) || String(v.author_mid) === String(mid));
+          if (filtered.length > 0) {
+            data = { code: 0, data: { list: { vlist: filtered.slice(0, 10) } } };
           }
         }
       } catch (e) {}
     }
 
-    // 方式3: 搜索用户的视频（通过搜索 API）
-    if (!data) {
+    // 方式3: 通过 UP 主名称搜索（使用 search/all/v2）
+    if (!data && name) {
       try {
         const searchData = await biliApiGet(
-          `https://api.bilibili.com/x/web-interface/search/type?search_type=video&mid=${mid}&ps=10&pn=1&order=pubdate`,
+          `https://api.bilibili.com/x/web-interface/search/all/v2?keyword=${encodeURIComponent(name)}`,
           await getBuvidCookies()
         );
         if (searchData && searchData.code === 0 && searchData.data?.result) {
-          data = { code: 0, data: { list: { vlist: searchData.data.result } } };
+          for (const r of searchData.data.result) {
+            if (r.result_type === "video" && r.data?.length) {
+              const filtered = r.data.filter(v => String(v.mid) === String(mid) || String(v.author_mid) === String(mid));
+              if (filtered.length > 0) {
+                data = { code: 0, data: { list: { vlist: filtered.slice(0, 10) } } };
+                break;
+              }
+            }
+          }
         }
       } catch (e) {}
     }
