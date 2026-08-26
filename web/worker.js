@@ -452,7 +452,6 @@ async function handleUpVideos(request) {
 
     // 尝试多种方式获取视频列表
     let data = null;
-    let usedApi = "";
 
     // 方式1: 空间 API
     try {
@@ -460,40 +459,39 @@ async function handleUpVideos(request) {
         `https://api.bilibili.com/x/space/arc/search?mid=${mid}&ps=10&pn=1&order=pubdate`,
         await getBuvidCookies()
       );
-      if (data && data.code === 0) usedApi = "space";
+      if (data && data.code === 0) {}
       else data = null;
     } catch (e) { data = null; }
 
-    // 方式2: 搜索用户的视频（通过搜索 API 的 up_mid 参数）
+    // 方式2: 爬取空间页面的 HTML 提取初始状态数据
     if (!data) {
       try {
-        const searchData = await biliApiGet(
-          `https://api.bilibili.com/x/web-interface/search/all/v2?keyword=&mid=${mid}`,
-          await getBuvidCookies()
-        );
-        if (searchData && searchData.code === 0 && searchData.data?.result) {
-          for (const r of searchData.data.result) {
-            if (r.result_type === "video" && r.data?.length) {
-              data = { code: 0, data: { list: { vlist: r.data.slice(0, 10) } } };
-              usedApi = "search";
-              break;
+        const htmlResp = await fetch(`https://space.bilibili.com/${mid}/video`, {
+          headers: BILI_HEADERS,
+        });
+        if (htmlResp.status === 200) {
+          const html = await htmlResp.text();
+          const match = html.match(/window\.__INITIAL_STATE__\s*=\s*({.+?});/);
+          if (match) {
+            const state = JSON.parse(match[1]);
+            const vlist = state?.videoData?.vlist || state?.videoList?.vlist || [];
+            if (vlist.length > 0) {
+              data = { code: 0, data: { list: { vlist: vlist.slice(0, 10) } } };
             }
           }
         }
       } catch (e) {}
     }
 
-    // 方式3: 通过视频信息 API 逐个获取（兜底，使用搜索 API 的 type 模式）
+    // 方式3: 搜索用户的视频（通过搜索 API）
     if (!data) {
       try {
-        // 搜索该 UP 主的最新视频
         const searchData = await biliApiGet(
           `https://api.bilibili.com/x/web-interface/search/type?search_type=video&mid=${mid}&ps=10&pn=1&order=pubdate`,
           await getBuvidCookies()
         );
         if (searchData && searchData.code === 0 && searchData.data?.result) {
           data = { code: 0, data: { list: { vlist: searchData.data.result } } };
-          usedApi = "search_type";
         }
       } catch (e) {}
     }
