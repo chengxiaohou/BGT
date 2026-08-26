@@ -286,23 +286,6 @@ export default {
 
     const urlObj = new URL(request.url);
 
-    // 调试端点：测试 API
-    if (urlObj.pathname === "/api/debug") {
-      const bvid = urlObj.searchParams.get("bvid") || "BV1Sf8e6RExR";
-      const cookieStr = await getBuvidCookies();
-      const results = { bvid, cookie: cookieStr };
-      // 测试 socket: wbi/v2 不传 cid
-      try {
-        const socketResp = await socketRequest(`https://api.bilibili.com/x/player/wbi/v2?bvid=${bvid}`, {
-          headers: { ...BILI_HEADERS, Cookie: cookieStr },
-        });
-        results.wbi_no_cid = { status: socketResp.status, body: socketResp.body.slice(0, 500) };
-      } catch (e) {
-        results.wbi_no_cid = { error: e.message };
-      }
-      return corsResponse(results);
-    }
-
     if (request.method !== "POST") {
       return corsResponse({ error: "仅支持 POST 请求" }, 405);
     }
