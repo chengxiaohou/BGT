@@ -251,7 +251,7 @@ export default {
         const socketResp = await socketRequest(`https://api.bilibili.com/x/player/v2?bvid=${bvid}`, {
           headers: { ...BILI_HEADERS, Cookie: cookieStr },
         });
-        results.player_no_cid = { status: socketResp.status, body: socketResp.body.slice(0, 500) };
+        results.player_no_cid = { status: socketResp.status, body: socketResp.body.slice(0, 1000) };
       } catch (e) {
         results.player_no_cid = { error: e.message };
       }
@@ -262,7 +262,7 @@ export default {
         const socketResp2 = await socketRequest(`https://api.bilibili.com/x/player/v2?bvid=${bvid}&cid=${cid}`, {
           headers: { ...BILI_HEADERS, Cookie: cookieStr },
         });
-        results.player_with_cid = { status: socketResp2.status, body: socketResp2.body.slice(0, 500) };
+        results.player_with_cid = { status: socketResp2.status, body: socketResp2.body.slice(0, 2000) };
       } catch (e) {
         results.player_with_cid = { error: e.message };
       }
