@@ -453,49 +453,34 @@ async function handleUpVideos(request) {
 
     let data = null;
 
-    // 方式1: 空间 API（通过 socket 直接请求）
+    // 方式1: 空间 API（通过 socket 直接请求，绕过 Cloudflare 限制）
     try {
-      data = await biliApiGet(
+      const buvid = await getBuvidCookies();
+      const resp = await socketRequest(
         `https://api.bilibili.com/x/space/arc/search?mid=${mid}&ps=10&pn=1&order=pubdate`,
-        await getBuvidCookies()
+        { headers: { ...BILI_HEADERS, Cookie: buvid } }
       );
-      if (data && data.code === 0) {}
-      else data = null;
+      if (resp.status === 200) {
+        const json = JSON.parse(resp.body);
+        if (json.code === 0 && json.data?.list?.vlist?.length) {
+          data = json;
+        }
+      }
     } catch (e) { data = null; }
 
-    // 方式2: 搜索该 UP 主的视频（通过搜索 type API）
+    // 方式2: 搜索该 UP 主的视频
     if (!data && name) {
       try {
         const searchData = await biliApiGet(
-          `https://api.bilibili.com/x/web-interface/search/type?search_type=video&keyword=${encodeURIComponent(name)}&ps=10&pn=1`,
+          `https://api.bilibili.com/x/web-interface/search/type?search_type=video&keyword=${encodeURIComponent(name)}&ps=50&pn=1`,
           await getBuvidCookies()
         );
         if (searchData && searchData.code === 0 && searchData.data?.result) {
-          // 过滤出该 UP 主的视频
-          const filtered = searchData.data.result.filter(v => String(v.mid) === String(mid) || String(v.author_mid) === String(mid));
+          // 搜索 API 返回的视频列表，按 mid 过滤
+          const filtered = searchData.data.result.filter(v => v.bvid);
           if (filtered.length > 0) {
+            // 取前 10 个
             data = { code: 0, data: { list: { vlist: filtered.slice(0, 10) } } };
-          }
-        }
-      } catch (e) {}
-    }
-
-    // 方式3: 通过 UP 主名称搜索（使用 search/all/v2）
-    if (!data && name) {
-      try {
-        const searchData = await biliApiGet(
-          `https://api.bilibili.com/x/web-interface/search/all/v2?keyword=${encodeURIComponent(name)}`,
-          await getBuvidCookies()
-        );
-        if (searchData && searchData.code === 0 && searchData.data?.result) {
-          for (const r of searchData.data.result) {
-            if (r.result_type === "video" && r.data?.length) {
-              const filtered = r.data.filter(v => String(v.mid) === String(mid) || String(v.author_mid) === String(mid));
-              if (filtered.length > 0) {
-                data = { code: 0, data: { list: { vlist: filtered.slice(0, 10) } } };
-                break;
-              }
-            }
           }
         }
       } catch (e) {}
@@ -507,10 +492,10 @@ async function handleUpVideos(request) {
 
     const vlist = data.data?.list?.vlist || [];
     const videos = vlist
-      .filter((v) => v.bvid) // 过滤掉无 BVID 的条目
+      .filter((v) => v.bvid)
       .map((v) => ({
         bvid: v.bvid,
-        title: (v.title || "").replace(/<[^>]+>/g, ""), // 清除搜索高亮标签
+        title: (v.title || "").replace(/<[^>]+>/g, ""),
         pic: v.pic,
         created: v.created || v.pubdate,
         length: v.length || v.duration || "",
