@@ -68,6 +68,10 @@ npx wrangler@4 dev --port 8787
 | 提取结果为空 | 视频本身没有 CC / AI 字幕；AI 字幕需要上传登录 B 站的 Cookie（Netscape 格式），且 Cookie 未过期 |
 | 私有仓库 Pages 打不开 | 私有仓库需要支持的 GitHub 套餐，或把仓库设为公开 |
 
+> 技术备注：B 站会拦截 Cloudflare 数据中心 IP 的请求（HTTP 412）。本项目 Worker 已改用
+> Cloudflare 底层 Socket API 直连 B 站接口绕过该拦截，同时自动处理 B 站的 buvid 设备标识，
+> 因此线上无需额外配置即可正常访问。
+
 ## 功能对比（网页版 vs 线上版）
 
 | 功能 | 原 Flask 网页版 | GitHub Pages 线上版 |

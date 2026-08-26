@@ -1,15 +1,145 @@
 // B站字幕提取 - Cloudflare Worker
 // 接收前端请求，代理调用 B 站 API，返回字幕文本
+//
+// 说明：B 站 WAF 会拦截带 CF-* 请求头的请求（HTTP 412），而 Workers 的
+// fetch 会自动注入这些头且无法移除。因此这里对 B 站相关请求改用底层
+// Socket API（cloudflare:sockets）手动发送 HTTP/1.1 请求，绕开该拦截。
+
+import { connect } from "cloudflare:sockets";
 
 const BILI_HEADERS = {
   "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
   "Referer": "https://www.bilibili.com/",
+  "Origin": "https://www.bilibili.com",
+  "Accept": "application/json, text/plain, */*",
+  "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
 };
 
 const SUBTITLE_PRIORITY = ["zh-CN", "zh-Hans", "zh", "ai-zh", "zh-Hant"];
 
-// 通过 B 站指纹接口获取 buvid3/buvid4：数据中心 IP 直接请求 B 站接口会被风控拦
-// 412，带上这个匿名标识可正常访问。结果在进程内缓存 10 分钟，避免每次多一次请求。
+const MAX_RESPONSE_BYTES = 4 * 1024 * 1024;
+
+// ── 底层 HTTP 客户端（Socket，避免 fetch 注入 CF-* 请求头）──
+function concatChunks(chunks) {
+  const total = chunks.reduce((n, c) => n + c.length, 0);
+  const out = new Uint8Array(total);
+  let offset = 0;
+  for (const c of chunks) {
+    out.set(c, offset);
+    offset += c.length;
+  }
+  return out;
+}
+
+const CRLF = new TextEncoder().encode("\r\n");
+const CRLFCRLF = new TextEncoder().encode("\r\n\r\n");
+
+function bytesIndexOf(buf, needle, from = 0) {
+  outer: for (let i = from; i + needle.length <= buf.length; i++) {
+    for (let j = 0; j < needle.length; j++) {
+      if (buf[i + j] !== needle[j]) continue outer;
+    }
+    return i;
+  }
+  return -1;
+}
+
+// 在字节数组上解析 chunked 传输编码（chunk 大小按字节计算，
+// 不能先转字符串再切片，否则中文等多字节字符会错位）
+function decodeChunkedBytes(buf) {
+  const out = [];
+  let pos = 0;
+  while (pos < buf.length) {
+    const lineEnd = bytesIndexOf(buf, CRLF, pos);
+    if (lineEnd === -1) break;
+    const sizeText = new TextDecoder().decode(buf.slice(pos, lineEnd)).trim();
+    const size = parseInt(sizeText, 16);
+    if (!Number.isFinite(size) || size <= 0) break;
+    const chunkStart = lineEnd + 2;
+    out.push(buf.slice(chunkStart, chunkStart + size));
+    pos = chunkStart + size + 2;
+  }
+  return concatChunks(out);
+}
+
+function parseHttpResponse(buf) {
+  const headerEnd = bytesIndexOf(buf, CRLFCRLF);
+  if (headerEnd === -1) throw new Error("B站返回了无效的 HTTP 响应");
+  const lines = new TextDecoder().decode(buf.slice(0, headerEnd)).split("\r\n");
+  const status = Number((lines[0].match(/^HTTP\/1\.[01]\s+(\d+)/) || [])[1]);
+  const headers = {};
+  for (let i = 1; i < lines.length; i++) {
+    const m = lines[i].match(/^([^:]+):\s*(.*)$/);
+    if (m) headers[m[1].toLowerCase()] = m[2];
+  }
+  let body = buf.slice(headerEnd + 4);
+  if ((headers["transfer-encoding"] || "").toLowerCase().includes("chunked")) {
+    body = decodeChunkedBytes(body);
+  }
+  return { status, headers, body: new TextDecoder().decode(body) };
+}
+
+async function socketRequest(rawUrl, { headers = {}, method = "GET" } = {}) {
+  const u = new URL(rawUrl);
+  const isHttps = u.protocol === "https:";
+  const port = Number(u.port) || (isHttps ? 443 : 80);
+  const socket = connect(
+    { hostname: u.hostname, port },
+    { secureTransport: isHttps ? "on" : "off", allowHalfOpen: true }
+  );
+  try {
+    const writer = socket.writable.getWriter();
+    const allHeaders = {
+      Host: u.host,
+      Connection: "close",
+      "Accept-Encoding": "identity",
+      ...headers,
+    };
+    const head =
+      `${method} ${u.pathname}${u.search} HTTP/1.1\r\n` +
+      Object.entries(allHeaders)
+        .map(([k, v]) => `${k}: ${v}`)
+        .join("\r\n") +
+      "\r\n\r\n";
+    await writer.write(new TextEncoder().encode(head));
+
+    const reader = socket.readable.getReader();
+    const chunks = [];
+    let total = 0;
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      chunks.push(value);
+      total += value.length;
+      if (total > MAX_RESPONSE_BYTES) throw new Error("B站响应过大");
+    }
+    return parseHttpResponse(concatChunks(chunks));
+  } finally {
+    try {
+      socket.close();
+    } catch {
+      // 连接已关闭则忽略
+    }
+  }
+}
+
+// 自动跟随重定向（最多 3 次）
+async function socketFetch(rawUrl, options = {}, redirects = 3) {
+  const resp = await socketRequest(rawUrl, options);
+  if (
+    redirects > 0 &&
+    [301, 302, 303, 307, 308].includes(resp.status) &&
+    resp.headers.location
+  ) {
+    const next = new URL(resp.headers.location, rawUrl).toString();
+    return socketFetch(next, options, redirects - 1);
+  }
+  return resp;
+}
+
+// ── B 站接口 ──────────────────────────────────────────────
+
+// 获取匿名设备标识（buvid3/buvid4/b_nut/b_lsid），结果缓存 10 分钟
 let cachedBuvidCookie = "";
 let cachedBuvidAt = 0;
 
@@ -18,26 +148,25 @@ async function getBuvidCookies() {
     return cachedBuvidCookie;
   }
   try {
-    const resp = await fetch("https://api.bilibili.com/x/frontend/finger/spi", {
+    const resp = await socketFetch("https://api.bilibili.com/x/frontend/finger/spi", {
       headers: BILI_HEADERS,
     });
-    if (!resp.ok) return "";
-    const data = await resp.json();
-    const { b_3, b_4 } = data?.data || {};
     const parts = [];
-    if (b_3) parts.push(`buvid3=${b_3}`);
-    if (b_4) parts.push(`buvid4=${b_4}`);
+    if (resp.status === 200) {
+      const data = JSON.parse(resp.body);
+      const { b_3, b_4 } = data?.data || {};
+      if (b_3) parts.push(`buvid3=${b_3}`);
+      if (b_4) parts.push(`buvid4=${b_4}`);
+    }
+    const rand = () => Math.floor(Math.random() * 16).toString(16);
+    parts.push(`b_nut=${Math.floor(Date.now() / 1000)}`);
+    parts.push(`b_lsid=${Array.from({ length: 32 }, rand).join("")}`);
     cachedBuvidCookie = parts.join("; ");
     cachedBuvidAt = Date.now();
   } catch {
     cachedBuvidCookie = "";
   }
   return cachedBuvidCookie;
-}
-
-// 合并 Cookie：匿名指纹在前，用户上传的登录 Cookie 在后
-function mergeCookies(...parts) {
-  return parts.filter(Boolean).join("; ");
 }
 
 // 解析 Netscape Cookie 格式，返回 cookie 字符串
@@ -65,26 +194,35 @@ function extractBvid(text) {
   return match[0];
 }
 
-// 调用 B 站 API 获取视频信息
-async function getVideoInfo(bvid, cookieStr) {
-  const url = `https://api.bilibili.com/x/web-interface/view?bvid=${bvid}`;
+// 请求 B 站 JSON 接口并统一解析
+async function biliApiGet(url, cookieStr) {
   const headers = { ...BILI_HEADERS };
-  if (cookieStr) headers["Cookie"] = cookieStr;
-  const resp = await fetch(url, { headers });
-  if (!resp.ok) throw new Error(`B站接口请求失败: HTTP ${resp.status}`);
-  const data = await resp.json();
+  if (cookieStr) headers.Cookie = cookieStr;
+  const resp = await socketFetch(url, { headers });
+  if (resp.status !== 200) throw new Error(`B站接口请求失败: HTTP ${resp.status}`);
+  let data;
+  try {
+    data = JSON.parse(resp.body);
+  } catch {
+    throw new Error("B站接口返回了非 JSON 数据");
+  }
+  return data;
+}
+
+async function getVideoInfo(bvid, cookieStr) {
+  const data = await biliApiGet(
+    `https://api.bilibili.com/x/web-interface/view?bvid=${bvid}`,
+    cookieStr
+  );
   if (data.code !== 0) throw new Error(data.message || "获取视频信息失败");
   return data.data;
 }
 
-// 获取字幕列表
 async function getSubtitleUrls(bvid, cid, cookieStr) {
-  const url = `https://api.bilibili.com/x/player/v2?bvid=${bvid}&cid=${cid}`;
-  const headers = { ...BILI_HEADERS };
-  if (cookieStr) headers["Cookie"] = cookieStr;
-  const resp = await fetch(url, { headers });
-  if (!resp.ok) return [];
-  const data = await resp.json();
+  const data = await biliApiGet(
+    `https://api.bilibili.com/x/player/v2?bvid=${bvid}&cid=${cid}`,
+    cookieStr
+  );
   if (data.code !== 0) return [];
   const subtitles = [];
   if (data.data?.subtitle?.subtitles) {
@@ -113,9 +251,14 @@ function formatSrtTime(seconds) {
 // 下载字幕内容，同时生成纯文本与 SRT（字幕 JSON 带 from/to 时间戳）
 async function fetchSubtitle(url) {
   if (url.startsWith("//")) url = "https:" + url;
-  const resp = await fetch(url, { headers: BILI_HEADERS });
-  if (!resp.ok) throw new Error(`字幕下载失败: HTTP ${resp.status}`);
-  const data = await resp.json();
+  const resp = await socketFetch(url, { headers: BILI_HEADERS });
+  if (resp.status !== 200) throw new Error(`字幕下载失败: HTTP ${resp.status}`);
+  let data;
+  try {
+    data = JSON.parse(resp.body);
+  } catch {
+    throw new Error("字幕文件解析失败");
+  }
   const lines = [];
   const srtLines = [];
   for (const item of data.body || []) {
@@ -166,25 +309,35 @@ export default {
     }
 
     const messages = [];
-    const result = { success: true, messages, text: "", srt_content: "", title: "", uploader: "", pubdate: null, error: "" };
+    const result = {
+      success: true,
+      messages,
+      text: "",
+      srt_content: "",
+      title: "",
+      uploader: "",
+      pubdate: null,
+      error: "",
+    };
 
     try {
       const formData = await request.formData();
       const url = formData.get("url")?.trim();
       if (!url) return corsResponse({ error: "请输入 B站视频链接" }, 400);
 
+      // 有用户上传的 Cookie 时优先使用（含登录态），否则生成匿名设备标识
       const cookieFile = formData.get("cookies");
-      const buvidCookies = await getBuvidCookies();
-      let cookieStr = buvidCookies;
       let hasUserCookies = false;
+      let cookieStr = "";
       if (cookieFile && cookieFile.size > 0) {
         const text = await cookieFile.text();
         const userCookies = parseNetscapeCookies(text);
         if (userCookies) {
-          cookieStr = mergeCookies(buvidCookies, userCookies);
+          cookieStr = userCookies;
           hasUserCookies = true;
         }
       }
+      if (!cookieStr) cookieStr = await getBuvidCookies();
 
       // 1) 提取 BV 号
       const bvid = extractBvid(url);
@@ -207,7 +360,7 @@ export default {
       }
       if (!subtitles.length) {
         messages.push("尝试获取公开字幕…");
-        subtitles = await getSubtitleUrls(bvid, cid);
+        subtitles = await getSubtitleUrls(bvid, cid, cookieStr);
       }
 
       if (subtitles.length) {
