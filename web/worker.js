@@ -288,6 +288,11 @@ export default {
 
     const urlObj = new URL(request.url);
 
+    // img-proxy 支持 GET 请求
+    if (urlObj.pathname === "/api/img-proxy") {
+      return handleImgProxy(request);
+    }
+
     if (request.method !== "POST") {
       return corsResponse({ error: "仅支持 POST 请求" }, 405);
     }
@@ -300,9 +305,6 @@ export default {
     }
     if (urlObj.pathname === "/api/up-videos") {
       return handleUpVideos(request);
-    }
-    if (urlObj.pathname === "/api/img-proxy") {
-      return handleImgProxy(request);
     }
 
     return corsResponse({ error: "路径不存在" }, 404);
