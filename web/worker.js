@@ -241,30 +241,28 @@ export default {
 
     const urlObj = new URL(request.url);
 
-    // 调试端点：测试 SPI 接口
+    // 调试端点：测试 API
     if (urlObj.pathname === "/api/debug") {
       const bvid = urlObj.searchParams.get("bvid") || "BV1uT4y1P7CX";
       const cookieStr = await getBuvidCookies();
-      const results = { cookie: cookieStr, bvid };
-      // 测试 socket: player API 无 cid
+      const results = { bvid, cookie: cookieStr };
+      // 测试 socket: view API - 带 aid 参数
       try {
-        const socketResp = await socketRequest(`https://api.bilibili.com/x/player/v2?bvid=${bvid}`, {
+        const socketResp = await socketRequest(`https://api.bilibili.com/x/web-interface/view?aid=928861104`, {
           headers: { ...BILI_HEADERS, Cookie: cookieStr },
         });
-        results.player_no_cid = { status: socketResp.status, body: socketResp.body.slice(0, 1000) };
+        results.view_with_aid = { status: socketResp.status, body: socketResp.body.slice(0, 500) };
       } catch (e) {
-        results.player_no_cid = { error: e.message };
+        results.view_with_aid = { error: e.message };
       }
-      // 测试 socket: player API 用返回的 cid
+      // 测试 socket: player API 返回完整数据
       try {
-        const data = JSON.parse(results.player_no_cid?.body || "{}");
-        const cid = data?.data?.cid || "1";
-        const socketResp2 = await socketRequest(`https://api.bilibili.com/x/player/v2?bvid=${bvid}&cid=${cid}`, {
+        const socketResp = await socketRequest(`https://api.bilibili.com/x/player/v2?bvid=${bvid}&cid=1`, {
           headers: { ...BILI_HEADERS, Cookie: cookieStr },
         });
-        results.player_with_cid = { status: socketResp2.status, body: socketResp2.body.slice(0, 4000) };
+        results.player_full = { status: socketResp.status, body: socketResp.body.slice(0, 5000) };
       } catch (e) {
-        results.player_with_cid = { error: e.message };
+        results.player_full = { error: e.message };
       }
       return corsResponse(results);
     }
