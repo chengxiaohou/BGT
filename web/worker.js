@@ -8,6 +8,38 @@ const BILI_HEADERS = {
 
 const SUBTITLE_PRIORITY = ["zh-CN", "zh-Hans", "zh", "ai-zh", "zh-Hant"];
 
+// 通过 B 站指纹接口获取 buvid3/buvid4：数据中心 IP 直接请求 B 站接口会被风控拦
+// 412，带上这个匿名标识可正常访问。结果在进程内缓存 10 分钟，避免每次多一次请求。
+let cachedBuvidCookie = "";
+let cachedBuvidAt = 0;
+
+async function getBuvidCookies() {
+  if (cachedBuvidCookie && Date.now() - cachedBuvidAt < 10 * 60 * 1000) {
+    return cachedBuvidCookie;
+  }
+  try {
+    const resp = await fetch("https://api.bilibili.com/x/frontend/finger/spi", {
+      headers: BILI_HEADERS,
+    });
+    if (!resp.ok) return "";
+    const data = await resp.json();
+    const { b_3, b_4 } = data?.data || {};
+    const parts = [];
+    if (b_3) parts.push(`buvid3=${b_3}`);
+    if (b_4) parts.push(`buvid4=${b_4}`);
+    cachedBuvidCookie = parts.join("; ");
+    cachedBuvidAt = Date.now();
+  } catch {
+    cachedBuvidCookie = "";
+  }
+  return cachedBuvidCookie;
+}
+
+// 合并 Cookie：匿名指纹在前，用户上传的登录 Cookie 在后
+function mergeCookies(...parts) {
+  return parts.filter(Boolean).join("; ");
+}
+
 // 解析 Netscape Cookie 格式，返回 cookie 字符串
 function parseNetscapeCookies(text) {
   const cookies = [];
@@ -34,9 +66,11 @@ function extractBvid(text) {
 }
 
 // 调用 B 站 API 获取视频信息
-async function getVideoInfo(bvid) {
+async function getVideoInfo(bvid, cookieStr) {
   const url = `https://api.bilibili.com/x/web-interface/view?bvid=${bvid}`;
-  const resp = await fetch(url, { headers: BILI_HEADERS });
+  const headers = { ...BILI_HEADERS };
+  if (cookieStr) headers["Cookie"] = cookieStr;
+  const resp = await fetch(url, { headers });
   if (!resp.ok) throw new Error(`B站接口请求失败: HTTP ${resp.status}`);
   const data = await resp.json();
   if (data.code !== 0) throw new Error(data.message || "获取视频信息失败");
@@ -140,10 +174,16 @@ export default {
       if (!url) return corsResponse({ error: "请输入 B站视频链接" }, 400);
 
       const cookieFile = formData.get("cookies");
-      let cookieStr = "";
+      const buvidCookies = await getBuvidCookies();
+      let cookieStr = buvidCookies;
+      let hasUserCookies = false;
       if (cookieFile && cookieFile.size > 0) {
         const text = await cookieFile.text();
-        cookieStr = parseNetscapeCookies(text);
+        const userCookies = parseNetscapeCookies(text);
+        if (userCookies) {
+          cookieStr = mergeCookies(buvidCookies, userCookies);
+          hasUserCookies = true;
+        }
       }
 
       // 1) 提取 BV 号
@@ -151,7 +191,7 @@ export default {
       messages.push(`提取到 BV 号: ${bvid}`);
 
       // 2) 获取视频信息
-      const videoInfo = await getVideoInfo(bvid);
+      const videoInfo = await getVideoInfo(bvid, cookieStr);
       const title = videoInfo.title || "未知标题";
       const cid = videoInfo.cid;
       messages.push(`视频标题: ${title}`);
@@ -161,7 +201,7 @@ export default {
 
       // 3) 获取字幕
       let subtitles = [];
-      if (cookieStr) {
+      if (hasUserCookies) {
         messages.push("正在使用上传的 Cookie 获取字幕…");
         subtitles = await getSubtitleUrls(bvid, cid, cookieStr);
       }
