@@ -376,6 +376,155 @@
         footer a { color: var(--footer-link); text-decoration: underline; transition: color 0.2s; }
         footer a:hover { color: var(--footer-link-hover); }
 
+        /* ── UP 主关注 ── */
+        .up-section {
+            display: flex;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 8px;
+            padding: 12px 0;
+            min-height: 44px;
+        }
+        .up-section-label {
+            font-size: 13px;
+            color: var(--text-secondary);
+            flex-shrink: 0;
+        }
+        .up-pill {
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            padding: 4px 12px;
+            background: var(--btn-secondary-bg);
+            border-radius: 16px;
+            font-size: 13px;
+            cursor: pointer;
+            color: var(--text);
+            transition: background 0.15s;
+            white-space: nowrap;
+        }
+        .up-pill:hover { background: var(--btn-secondary-hover); }
+        .up-pill .up-remove {
+            font-size: 14px;
+            line-height: 1;
+            color: var(--text-secondary);
+            cursor: pointer;
+            margin-left: 2px;
+        }
+        .up-pill .up-remove:hover { color: var(--log-error); }
+        .up-add-btn {
+            display: inline-flex;
+            align-items: center;
+            gap: 2px;
+            padding: 4px 10px;
+            background: none;
+            border: 1px dashed var(--input-border);
+            border-radius: 16px;
+            font-size: 12px;
+            color: var(--text-secondary);
+            cursor: pointer;
+            transition: all 0.15s;
+        }
+        .up-add-btn:hover {
+            border-color: var(--input-focus);
+            color: var(--input-focus);
+        }
+
+        /* ── 视频列表弹窗 ── */
+        .video-list-modal {
+            display: none;
+            position: fixed;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(0,0,0,0.4);
+            z-index: 1000;
+            align-items: center;
+            justify-content: center;
+        }
+        .video-list-modal.active { display: flex; }
+        .video-list-modal .modal {
+            min-width: 480px;
+            max-width: 90vw;
+            max-height: 80vh;
+            display: flex;
+            flex-direction: column;
+        }
+        .video-list-modal .modal-body {
+            overflow-y: auto;
+            flex: 1;
+        }
+        .video-item {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 10px 0;
+            border-bottom: 1px solid var(--result-text-border);
+            cursor: pointer;
+            transition: opacity 0.15s;
+        }
+        .video-item:last-child { border-bottom: none; }
+        .video-item:hover { opacity: 0.8; }
+        .video-item .v-pic {
+            width: 60px;
+            height: 38px;
+            border-radius: 4px;
+            object-fit: cover;
+            flex-shrink: 0;
+            background: var(--result-text-bg);
+        }
+        .video-item .v-info {
+            flex: 1;
+            min-width: 0;
+        }
+        .video-item .v-title {
+            font-size: 14px;
+            line-height: 1.4;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+        .video-item .v-meta {
+            font-size: 11px;
+            color: var(--text-secondary);
+            margin-top: 2px;
+        }
+        .video-item .v-status {
+            font-size: 11px;
+            flex-shrink: 0;
+        }
+        .video-item .v-status.extracted { color: var(--text-secondary); }
+        .video-item .v-status.unextracted { color: #fb7299; font-weight: 600; }
+        .video-item.extracted .v-title { color: var(--text-secondary); }
+        .video-item.unextracted .v-title { color: #fb7299; }
+
+        /* ── 关注按钮 ── */
+        .follow-btn {
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            padding: 4px 12px;
+            border: 1px solid var(--btn-primary-bg);
+            border-radius: 14px;
+            background: none;
+            color: var(--btn-primary-bg);
+            font-size: 12px;
+            cursor: pointer;
+            transition: all 0.15s;
+            white-space: nowrap;
+        }
+        .follow-btn:hover {
+            background: var(--btn-primary-bg);
+            color: #fff;
+        }
+        .follow-btn.followed {
+            border-color: var(--text-secondary);
+            color: var(--text-secondary);
+        }
+        .follow-btn.followed:hover {
+            background: #ff4444;
+            border-color: #ff4444;
+            color: #fff;
+        }
+
         @media (max-width: 480px) {
             .container { padding: 20px 12px; }
             .card { padding: 16px; }
@@ -401,6 +550,12 @@
             </div>
         </header>
 
+        <div class="up-section" id="upSection">
+            <span class="up-section-label">关注的UP主</span>
+            <div class="up-list" id="upList" style="display:inline-flex;flex-wrap:wrap;gap:6px;align-items:center"></div>
+            <button class="up-add-btn" onclick="showAddUp()">+ 添加</button>
+        </div>
+
         <div class="card">
             <div class="form-group">
                 <input type="text" id="url" placeholder="粘贴 B站视频链接" autofocus>
@@ -418,6 +573,7 @@
             <div class="result-header">
                 <span class="result-title" id="resultTitle"></span>
                 <div class="result-actions">
+                    <button class="follow-btn" id="followBtn" onclick="toggleFollow()" style="display:none"></button>
                     <button class="btn btn-secondary" onclick="copyText()">复制</button>
                 </div>
             </div>
@@ -440,6 +596,34 @@
                     <div class="hint">上传 B站登录 Cookie（Netscape 格式），可获取 AI 识别字幕</div>
                     <div class="cookie-status" id="cookieStatus"></div>
                 </div>
+            </div>
+        </div>
+
+        <!-- 视频列表弹窗 -->
+        <div class="video-list-modal" id="videoListModal" onclick="closeVideoList(event)">
+            <div class="modal">
+                <div class="modal-header">
+                    <h2 id="videoListTitle">投稿列表</h2>
+                    <button class="modal-close" onclick="closeVideoList()">&times;</button>
+                </div>
+                <div class="modal-body" id="videoListBody">
+                    <div style="text-align:center;padding:24px;color:var(--text-secondary)">加载中...</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 添加 UP 主弹窗 -->
+        <div class="modal-overlay" id="addUpModal" onclick="closeAddUp(event)">
+            <div class="modal">
+                <div class="modal-header">
+                    <h2>添加关注的 UP 主</h2>
+                    <button class="modal-close" onclick="closeAddUp()">&times;</button>
+                </div>
+                <div class="form-group">
+                    <input type="text" id="upKeyword" placeholder="输入 UP 主名称或空间链接" onkeydown="if(event.key==='Enter') confirmAddUp()">
+                </div>
+                <div id="addUpResult" style="font-size:13px;color:var(--text-secondary);margin-bottom:8px"></div>
+                <button class="btn btn-primary" onclick="confirmAddUp()">搜索并关注</button>
             </div>
         </div>
 
@@ -519,6 +703,9 @@
         });
         updateCookieIndicator();
 
+        // ── 初始化 UP 主列表 ──
+        renderUpList();
+
         // ── 日志 ──
         function log(msg, type) {
             const el = document.getElementById('logArea');
@@ -538,6 +725,8 @@
             document.getElementById('resultTitle').textContent = result.title || '视频文本';
             const header = buildTxtHeader(result.title, result.uploader, result.pubdate);
             document.getElementById('resultText').textContent = header + (result.text || '（无文本内容）');
+            // 显示关注按钮
+            updateFollowBtn(result.uploader, result.uploader_mid);
         }
 
         function setLoading(loading) {
@@ -636,6 +825,10 @@
                 if (data.success && data.text) {
                     const name = [data.title, data.uploader, data.pubdate ? new Date(data.pubdate * 1000).toISOString().slice(0, 10) : ''].filter(Boolean).join('_').replace(/[<>:"/\\|?*]/g, '_');
                     data.download_name = name;
+                    // 记录已提取的视频
+                    if (data.uploader_mid) {
+                        recordExtracted(data.uploader_mid, data.uploader, data.title);
+                    }
                     showResult(data);
                 } else if (data.success && !data.text) {
                     log('处理完成，但未提取到文本内容', 'warn');
@@ -672,6 +865,183 @@
         }
 
         document.getElementById('url').addEventListener('keydown', function(e) { if (e.key === 'Enter') extract(); });
+
+        // ── UP 主管理 ──
+        const FOLLOWED_KEY = 'followed_ups';
+        const EXTRACTED_KEY = 'extracted_videos';
+        let _currentUpMid = null; // 当前结果对应的 UP 主 MID
+
+        function getFollowedUps() {
+            try { return JSON.parse(localStorage.getItem(FOLLOWED_KEY)) || []; } catch { return []; }
+        }
+        function saveFollowedUps(list) {
+            localStorage.setItem(FOLLOWED_KEY, JSON.stringify(list));
+            renderUpList();
+        }
+        function getExtractedVideos() {
+            try { return JSON.parse(localStorage.getItem(EXTRACTED_KEY)) || {}; } catch { return {}; }
+        }
+        function saveExtractedVideos(obj) {
+            localStorage.setItem(EXTRACTED_KEY, JSON.stringify(obj));
+        }
+
+        function recordExtracted(mid, name, title) {
+            const extracted = getExtractedVideos();
+            const key = name + '/' + mid;
+            if (!extracted[key]) extracted[key] = {};
+            extracted[key][title] = Date.now();
+            saveExtractedVideos(extracted);
+        }
+
+        function isVideoExtracted(mid, name, title) {
+            const extracted = getExtractedVideos();
+            const key = name + '/' + mid;
+            return extracted[key] && extracted[key][title] ? true : false;
+        }
+
+        function renderUpList() {
+            const list = getFollowedUps();
+            const container = document.getElementById('upList');
+            if (list.length === 0) {
+                container.innerHTML = '<span style="font-size:12px;color:var(--text-secondary)">暂无关注的 UP 主</span>';
+                return;
+            }
+            container.innerHTML = list.map(up =>
+                `<span class="up-pill" onclick="showUpVideos('${up.mid}','${escapeHtml(up.name)}')" title="查看投稿">
+                    ${escapeHtml(up.name)}
+                    <span class="up-remove" onclick="event.stopPropagation();removeUp('${up.mid}')" title="取消关注">&times;</span>
+                </span>`
+            ).join('');
+        }
+
+        function removeUp(mid) {
+            const list = getFollowedUps().filter(u => String(u.mid) !== String(mid));
+            saveFollowedUps(list);
+            log('已取消关注', 'info');
+        }
+
+        function toggleFollow() {
+            const list = getFollowedUps();
+            const idx = list.findIndex(u => String(u.mid) === String(_currentUpMid));
+            if (idx >= 0) {
+                list.splice(idx, 1);
+                saveFollowedUps(list);
+                log('已取消关注', 'info');
+            } else {
+                const name = document.getElementById('resultTitle').textContent.split(' ')[0];
+                list.push({ mid: _currentUpMid, name: _result.uploader, followedAt: Date.now() });
+                saveFollowedUps(list);
+                log('已关注 UP 主：' + _result.uploader, 'info');
+            }
+            updateFollowBtn(_result.uploader, _currentUpMid);
+        }
+
+        function updateFollowBtn(name, mid) {
+            const btn = document.getElementById('followBtn');
+            _currentUpMid = mid;
+            if (!name || !mid) { btn.style.display = 'none'; return; }
+            btn.style.display = 'inline-flex';
+            const list = getFollowedUps();
+            const followed = list.some(u => String(u.mid) === String(mid));
+            btn.className = 'follow-btn' + (followed ? ' followed' : '');
+            btn.textContent = followed ? '已关注 ✓' : '+ 关注UP';
+        }
+
+        // ── 添加 UP 主 ──
+        function showAddUp() {
+            document.getElementById('addUpModal').classList.add('active');
+            document.getElementById('upKeyword').value = '';
+            document.getElementById('addUpResult').textContent = '';
+            setTimeout(() => document.getElementById('upKeyword').focus(), 100);
+        }
+        function closeAddUp(e) {
+            if (e && e.target !== e.currentTarget) return;
+            document.getElementById('addUpModal').classList.remove('active');
+        }
+        async function confirmAddUp() {
+            const keyword = document.getElementById('upKeyword').value.trim();
+            if (!keyword) { document.getElementById('addUpResult').textContent = '请输入 UP 主名称或空间链接'; return; }
+            document.getElementById('addUpResult').textContent = '搜索中...';
+            try {
+                const resp = await fetch(WORKER_URL + '/api/search-up', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ keyword })
+                });
+                const data = await resp.json();
+                if (data.error) {
+                    document.getElementById('addUpResult').textContent = data.error;
+                    return;
+                }
+                const list = getFollowedUps();
+                if (list.some(u => String(u.mid) === String(data.mid))) {
+                    document.getElementById('addUpResult').textContent = '已关注该 UP 主';
+                    return;
+                }
+                list.push({ mid: data.mid, name: data.name, followedAt: Date.now() });
+                saveFollowedUps(list);
+                closeAddUp();
+                log('已关注 UP 主：' + data.name, 'info');
+            } catch (e) {
+                document.getElementById('addUpResult').textContent = '搜索失败: ' + e.message;
+            }
+        }
+
+        // ── 视频列表 ──
+        function closeVideoList(e) {
+            if (e && e.target !== e.currentTarget) return;
+            document.getElementById('videoListModal').classList.remove('active');
+        }
+        async function showUpVideos(mid, name) {
+            const modal = document.getElementById('videoListModal');
+            const body = document.getElementById('videoListBody');
+            const title = document.getElementById('videoListTitle');
+            title.textContent = name + ' 的投稿';
+            modal.classList.add('active');
+            body.innerHTML = '<div style="text-align:center;padding:24px;color:var(--text-secondary)">加载中...</div>';
+
+            try {
+                const resp = await fetch(WORKER_URL + '/api/up-videos', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ mid })
+                });
+                const data = await resp.json();
+                if (data.error) {
+                    body.innerHTML = '<div style="text-align:center;padding:24px;color:var(--log-error)">' + escapeHtml(data.error) + '</div>';
+                    return;
+                }
+                if (!data.videos || data.videos.length === 0) {
+                    body.innerHTML = '<div style="text-align:center;padding:24px;color:var(--text-secondary)">暂无投稿</div>';
+                    return;
+                }
+                body.innerHTML = '';
+                for (const v of data.videos) {
+                    const extracted = isVideoExtracted(mid, name, v.title);
+                    const statusClass = extracted ? 'extracted' : 'unextracted';
+                    const statusText = extracted ? '已提取' : '未提取';
+                    const d = new Date(v.created * 1000);
+                    const dateStr = d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
+                    const item = document.createElement('div');
+                    item.className = 'video-item ' + statusClass;
+                    item.innerHTML =
+                        '<img class="v-pic" src="' + (v.pic || '') + '" alt="" onerror="this.src=\'data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2238%22><rect fill=%22%23eee%22 width=%2260%22 height=%2238%22/></svg>\'">' +
+                        '<div class="v-info"><div class="v-title">' + escapeHtml(v.title) + '</div><div class="v-meta">' + dateStr + ' | ' + (v.length || '') + '</div></div>' +
+                        '<span class="v-status ' + statusClass + '">' + statusText + '</span>';
+                    item.onclick = function() { extractFromBvid(v.bvid, name, mid); };
+                    body.appendChild(item);
+                }
+            } catch (e) {
+                body.innerHTML = '<div style="text-align:center;padding:24px;color:var(--log-error)">加载失败: ' + escapeHtml(e.message) + '</div>';
+            }
+        }
+
+        // ── 从视频列表提取字幕 ──
+        async function extractFromBvid(bvid, upName, upMid) {
+            closeVideoList();
+            document.getElementById('url').value = 'https://www.bilibili.com/video/' + bvid;
+            await extract();
+        }
     </script>
 </body>
 </html>

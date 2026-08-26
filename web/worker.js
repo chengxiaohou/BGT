@@ -157,6 +157,7 @@ async function getVideoInfo(bvid, cookieStr, url) {
         cid: data.data.cid,
         title: data.data.title,
         uploader: data.data.owner?.name || "",
+        uploader_mid: data.data.owner?.mid || null,
         pubdate: data.data.pubdate,
       };
     }
@@ -176,6 +177,7 @@ async function getVideoInfo(bvid, cookieStr, url) {
         cid: data.data.cid,
         title: data.data.title || data.data.video_title || "未知标题",
         uploader: (data.data.owner?.name || ""),
+        uploader_mid: data.data.owner?.mid || null,
         pubdate: data.data.pubdate || Math.floor(Date.now() / 1000),
       };
     }
@@ -290,96 +292,230 @@ export default {
       return corsResponse({ error: "仅支持 POST 请求" }, 405);
     }
 
-    if (urlObj.pathname !== "/api/extract") {
-      return corsResponse({ error: "路径不存在" }, 404);
+    if (urlObj.pathname === "/api/extract") {
+      return handleExtract(request);
+    }
+    if (urlObj.pathname === "/api/search-up") {
+      return handleSearchUp(request);
+    }
+    if (urlObj.pathname === "/api/up-videos") {
+      return handleUpVideos(request);
     }
 
-    const messages = [];
-    const result = {
-      success: true,
-      messages,
-      text: "",
-      srt_content: "",
-      title: "",
-      uploader: "",
-      pubdate: null,
-      error: "",
-    };
-
-    try {
-      const formData = await request.formData();
-      const url = formData.get("url")?.trim();
-      if (!url) return corsResponse({ error: "请输入 B站视频链接" }, 400);
-
-      // 有用户上传的 Cookie 时优先使用（含登录态），否则生成匿名设备标识
-      const cookieFile = formData.get("cookies");
-      let hasUserCookies = false;
-      let cookieStr = "";
-      if (cookieFile && cookieFile.size > 0) {
-        const text = await cookieFile.text();
-        const userCookies = parseNetscapeCookies(text);
-        if (userCookies) {
-          cookieStr = userCookies;
-          hasUserCookies = true;
-        }
-      }
-      if (!cookieStr) cookieStr = await getBuvidCookies();
-
-      // 1) 提取 BV 号
-      const bvid = extractBvid(url);
-      messages.push(`提取到 BV 号: ${bvid}`);
-
-      // 2) 获取视频信息
-      const videoInfo = await getVideoInfo(bvid, cookieStr);
-      const title = videoInfo.title || "未知标题";
-      const cid = videoInfo.cid;
-      messages.push(`视频标题: ${title}`);
-      result.title = title;
-      result.uploader = videoInfo.uploader || "";
-      result.pubdate = videoInfo.pubdate;
-
-      // 3) 获取字幕
-      let subtitles = [];
-      if (hasUserCookies) {
-        messages.push("正在使用上传的 Cookie 获取字幕…");
-        subtitles = await getSubtitleUrls(bvid, cid, cookieStr);
-      }
-      if (!subtitles.length) {
-        messages.push("尝试获取公开字幕…");
-        subtitles = await getSubtitleUrls(bvid, cid, cookieStr);
-      }
-
-      if (subtitles.length) {
-        const names = subtitles.map((s) => s.lang_name);
-        messages.push(`发现字幕: ${names.join(", ")}`);
-        let chosen = null;
-        for (const lang of SUBTITLE_PRIORITY) {
-          chosen = subtitles.find((s) => s.lang === lang);
-          if (chosen) break;
-        }
-        if (!chosen) chosen = subtitles[0];
-        messages.push(`使用字幕: ${chosen.lang_name}`);
-        const sub = await fetchSubtitle(chosen.url);
-        result.text = sub.text;
-        result.srt_content = sub.srt;
-      } else {
-        messages.push("未发现可用字幕");
-        result.success = false;
-        if (hasUserCookies) {
-          result.error = "该视频没有可用的字幕";
-        } else {
-          result.error = "未发现公开字幕，可上传 B站 Cookie 获取 AI 识别字幕";
-        }
-      }
-    } catch (err) {
-      result.success = false;
-      result.error = err.message;
-      result.messages.push(`处理出错: ${err.message}`);
-    }
-
-    return corsResponse(result);
+    return corsResponse({ error: "路径不存在" }, 404);
   },
 };
+
+// ── 处理字幕提取 ──
+async function handleExtract(request) {
+  const messages = [];
+  const result = {
+    success: true,
+    messages,
+    text: "",
+    srt_content: "",
+    title: "",
+    uploader: "",
+    uploader_mid: null,
+    pubdate: null,
+    error: "",
+  };
+
+  try {
+    const formData = await request.formData();
+    const url = formData.get("url")?.trim();
+    if (!url) return corsResponse({ error: "请输入 B站视频链接" }, 400);
+
+    const cookieFile = formData.get("cookies");
+    let hasUserCookies = false;
+    let cookieStr = "";
+    if (cookieFile && cookieFile.size > 0) {
+      const text = await cookieFile.text();
+      const userCookies = parseNetscapeCookies(text);
+      if (userCookies) {
+        cookieStr = userCookies;
+        hasUserCookies = true;
+      }
+    }
+    if (!cookieStr) cookieStr = await getBuvidCookies();
+
+    const bvid = extractBvid(url);
+    messages.push(`提取到 BV 号: ${bvid}`);
+
+    const videoInfo = await getVideoInfo(bvid, cookieStr);
+    const title = videoInfo.title || "未知标题";
+    const cid = videoInfo.cid;
+    messages.push(`视频标题: ${title}`);
+    result.title = title;
+    result.uploader = videoInfo.uploader || "";
+    result.uploader_mid = videoInfo.uploader_mid || null;
+    result.pubdate = videoInfo.pubdate;
+
+    let subtitles = [];
+    if (hasUserCookies) {
+      messages.push("正在使用上传的 Cookie 获取字幕…");
+      subtitles = await getSubtitleUrls(bvid, cid, cookieStr);
+    }
+    if (!subtitles.length) {
+      messages.push("尝试获取公开字幕…");
+      subtitles = await getSubtitleUrls(bvid, cid, cookieStr);
+    }
+
+    if (subtitles.length) {
+      const names = subtitles.map((s) => s.lang_name);
+      messages.push(`发现字幕: ${names.join(", ")}`);
+      let chosen = null;
+      for (const lang of SUBTITLE_PRIORITY) {
+        chosen = subtitles.find((s) => s.lang === lang);
+        if (chosen) break;
+      }
+      if (!chosen) chosen = subtitles[0];
+      messages.push(`使用字幕: ${chosen.lang_name}`);
+      const sub = await fetchSubtitle(chosen.url);
+      result.text = sub.text;
+      result.srt_content = sub.srt;
+    } else {
+      messages.push("未发现可用字幕");
+      result.success = false;
+      if (hasUserCookies) {
+        result.error = "该视频没有可用的字幕";
+      } else {
+        result.error = "未发现公开字幕，可上传 B站 Cookie 获取 AI 识别字幕";
+      }
+    }
+  } catch (err) {
+    result.success = false;
+    result.error = err.message;
+    result.messages.push(`处理出错: ${err.message}`);
+  }
+
+  return corsResponse(result);
+}
+
+// ── 搜索 UP 主 ──
+async function handleSearchUp(request) {
+  try {
+    const body = await request.json();
+    let keyword = (body.keyword || "").trim();
+    if (!keyword) return corsResponse({ error: "请输入 UP 主名称或空间链接" }, 400);
+
+    // 从空间链接提取 MID
+    const midMatch = keyword.match(/space\.bilibili\.com\/(\d+)/);
+    if (midMatch) {
+      const mid = midMatch[1];
+      // 通过 view 接口获取用户信息
+      const data = await biliApiGet(
+        `https://api.bilibili.com/x/space/acc/info?mid=${mid}`,
+        ""
+      );
+      if (data.code === 0 && data.data) {
+        return corsResponse({
+          mid: data.data.mid,
+          name: data.data.name,
+          avatar: data.data.face,
+        });
+      }
+      return corsResponse({ error: "未找到该 UP 主" }, 404);
+    }
+
+    // 搜索 UP 主名称
+    const searchData = await biliApiGet(
+      `https://api.bilibili.com/x/web-interface/search/all/v2?keyword=${encodeURIComponent(keyword)}`,
+      ""
+    );
+    if (searchData.code !== 0) {
+      return corsResponse({ error: "搜索失败: " + (searchData.message || "未知错误") }, 400);
+    }
+    const results = searchData.data?.result || [];
+    for (const r of results) {
+      if (r.result_type === "bili_user" && r.data?.length) {
+        const u = r.data[0];
+        return corsResponse({
+          mid: u.mid,
+          name: u.uname,
+          avatar: u.upic,
+        });
+      }
+    }
+    return corsResponse({ error: "未找到该 UP 主，请检查名称是否正确" }, 404);
+  } catch (err) {
+    return corsResponse({ error: "搜索出错: " + err.message }, 500);
+  }
+}
+
+// ── 获取 UP 主最新视频列表 ──
+async function handleUpVideos(request) {
+  try {
+    const body = await request.json();
+    const mid = body.mid;
+    if (!mid) return corsResponse({ error: "缺少 UP 主 ID" }, 400);
+
+    // 尝试多种方式获取视频列表
+    let data = null;
+    let usedApi = "";
+
+    // 方式1: 空间 API
+    try {
+      data = await biliApiGet(
+        `https://api.bilibili.com/x/space/arc/search?mid=${mid}&ps=10&pn=1&order=pubdate`,
+        await getBuvidCookies()
+      );
+      if (data && data.code === 0) usedApi = "space";
+      else data = null;
+    } catch (e) { data = null; }
+
+    // 方式2: 搜索用户的视频（通过搜索 API 的 up_mid 参数）
+    if (!data) {
+      try {
+        const searchData = await biliApiGet(
+          `https://api.bilibili.com/x/web-interface/search/all/v2?keyword=&mid=${mid}`,
+          await getBuvidCookies()
+        );
+        if (searchData && searchData.code === 0 && searchData.data?.result) {
+          for (const r of searchData.data.result) {
+            if (r.result_type === "video" && r.data?.length) {
+              data = { code: 0, data: { list: { vlist: r.data.slice(0, 10) } } };
+              usedApi = "search";
+              break;
+            }
+          }
+        }
+      } catch (e) {}
+    }
+
+    // 方式3: 通过视频信息 API 逐个获取（兜底，使用搜索 API 的 type 模式）
+    if (!data) {
+      try {
+        // 搜索该 UP 主的最新视频
+        const searchData = await biliApiGet(
+          `https://api.bilibili.com/x/web-interface/search/type?search_type=video&mid=${mid}&ps=10&pn=1&order=pubdate`,
+          await getBuvidCookies()
+        );
+        if (searchData && searchData.code === 0 && searchData.data?.result) {
+          data = { code: 0, data: { list: { vlist: searchData.data.result } } };
+          usedApi = "search_type";
+        }
+      } catch (e) {}
+    }
+
+    if (!data) {
+      return corsResponse({ error: "获取视频列表失败，请稍后重试" }, 400);
+    }
+
+    const vlist = data.data?.list?.vlist || [];
+    const videos = vlist.map((v) => ({
+      bvid: v.bvid,
+      title: v.title,
+      pic: v.pic,
+      created: v.created || v.pubdate,
+      length: v.length || v.duration || "",
+      play: v.play,
+    }));
+    return corsResponse({ videos });
+  } catch (err) {
+    return corsResponse({ error: "获取视频列表出错: " + err.message }, 500);
+  }
+}
 
 // ── Socket 降级方案（当 fetch 被 B 站 WAF 拦截时使用）──
 const MAX_RESPONSE_BYTES = 4 * 1024 * 1024;
