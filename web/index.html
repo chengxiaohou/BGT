@@ -909,12 +909,26 @@
                 return;
             }
             container.innerHTML = list.map(up =>
-                `<span class="up-pill" onclick="showUpVideos('${up.mid}','${escapeHtml(up.name)}')" title="查看投稿">
+                `<span class="up-pill" data-mid="${up.mid}" data-name="${escapeHtml(up.name)}" title="查看投稿">
                     ${escapeHtml(up.name)}
-                    <span class="up-remove" onclick="event.stopPropagation();removeUp('${up.mid}')" title="取消关注">&times;</span>
+                    <span class="up-remove" data-mid="${up.mid}" title="取消关注">&times;</span>
                 </span>`
             ).join('');
         }
+
+        // 事件委托：点击 UP 主 pill 或 × 按钮
+        document.getElementById('upList').addEventListener('click', function(e) {
+            const removeBtn = e.target.closest('.up-remove');
+            if (removeBtn) {
+                e.stopPropagation();
+                removeUp(removeBtn.dataset.mid);
+                return;
+            }
+            const pill = e.target.closest('.up-pill');
+            if (pill) {
+                showUpVideos(pill.dataset.mid, pill.dataset.name);
+            }
+        });
 
         function removeUp(mid) {
             const list = getFollowedUps().filter(u => String(u.mid) !== String(mid));
