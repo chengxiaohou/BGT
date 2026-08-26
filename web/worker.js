@@ -37,6 +37,7 @@ function extractBvid(text) {
 async function getVideoInfo(bvid) {
   const url = `https://api.bilibili.com/x/web-interface/view?bvid=${bvid}`;
   const resp = await fetch(url, { headers: BILI_HEADERS });
+  if (!resp.ok) throw new Error(`B站接口请求失败: HTTP ${resp.status}`);
   const data = await resp.json();
   if (data.code !== 0) throw new Error(data.message || "获取视频信息失败");
   return data.data;
@@ -48,6 +49,7 @@ async function getSubtitleUrls(bvid, cid, cookieStr) {
   const headers = { ...BILI_HEADERS };
   if (cookieStr) headers["Cookie"] = cookieStr;
   const resp = await fetch(url, { headers });
+  if (!resp.ok) return [];
   const data = await resp.json();
   if (data.code !== 0) return [];
   const subtitles = [];
@@ -63,16 +65,35 @@ async function getSubtitleUrls(bvid, cid, cookieStr) {
   return subtitles;
 }
 
-// 下载字幕内容
+// 将秒数格式化为 SRT 时间轴 hh:mm:ss,mmm
+function formatSrtTime(seconds) {
+  const sec = Math.max(0, seconds);
+  const h = Math.floor(sec / 3600);
+  const m = Math.floor((sec % 3600) / 60);
+  const s = Math.floor(sec % 60);
+  const ms = Math.round((sec % 1) * 1000);
+  const pad = (n, w = 2) => String(n).padStart(w, "0");
+  return `${pad(h)}:${pad(m)}:${pad(s)},${pad(ms, 3)}`;
+}
+
+// 下载字幕内容，同时生成纯文本与 SRT（字幕 JSON 带 from/to 时间戳）
 async function fetchSubtitle(url) {
   if (url.startsWith("//")) url = "https:" + url;
   const resp = await fetch(url, { headers: BILI_HEADERS });
+  if (!resp.ok) throw new Error(`字幕下载失败: HTTP ${resp.status}`);
   const data = await resp.json();
   const lines = [];
+  const srtLines = [];
   for (const item of data.body || []) {
-    if (item.content) lines.push(item.content);
+    if (!item.content) continue;
+    lines.push(item.content);
+    if (typeof item.from === "number" && typeof item.to === "number") {
+      srtLines.push(
+        `${srtLines.length + 1}\n${formatSrtTime(item.from)} --> ${formatSrtTime(item.to)}\n${item.content}\n`
+      );
+    }
   }
-  return lines.join("\n");
+  return { text: lines.join("\n"), srt: srtLines.join("\n") };
 }
 
 // 构建 CORS 响应
@@ -159,7 +180,9 @@ export default {
         }
         if (!chosen) chosen = subtitles[0];
         messages.push(`使用字幕: ${chosen.lang_name}`);
-        result.text = await fetchSubtitle(chosen.url);
+        const sub = await fetchSubtitle(chosen.url);
+        result.text = sub.text;
+        result.srt_content = sub.srt;
       } else {
         messages.push("未发现可用字幕");
         result.success = false;

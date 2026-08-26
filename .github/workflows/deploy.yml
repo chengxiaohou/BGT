@@ -22,15 +22,37 @@ jobs:
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
     steps:
       - uses: actions/checkout@v4
 
-      # 将 Worker URL 注入前端页面
-      - name: 替换 Worker 地址
+      # Cloudflare Token 未配置时直接给出提示并失败，避免部署出不完整的页面
+      - name: 检查 Cloudflare Token
+        if: env.CLOUDFLARE_API_TOKEN == ''
         run: |
-          sed -i "s|WORKER_URL_PLACEHOLDER|${{ vars.WORKER_URL || 'http://localhost:8787' }}|g" web/index.html
+          echo "::error::未配置 CLOUDFLARE_API_TOKEN：请到仓库 Settings → Secrets and variables → Actions 添加 Cloudflare API Token 后重试"
+          exit 1
 
-      # 部署前端到 GitHub Pages
+      # 先部署 Worker，从输出中解析 workers.dev 地址
+      - name: 部署 Worker 到 Cloudflare
+        working-directory: web
+        run: |
+          OUTPUT=$(npx --yes wrangler@4 deploy 2>&1)
+          echo "$OUTPUT"
+          WORKER_URL=$(echo "$OUTPUT" | grep -oE 'https://[a-zA-Z0-9.-]+\.workers\.dev' | head -1)
+          if [ -z "$WORKER_URL" ]; then
+            echo "::error::未能从 wrangler 输出中解析 Worker 地址，请检查 Cloudflare 账号配置"
+            exit 1
+          fi
+          echo "WORKER_URL=$WORKER_URL" >> "$GITHUB_ENV"
+
+      # 把真实 Worker 地址写入前端页面，再上传到 Pages
+      - name: 将 Worker 地址注入前端页面
+        run: |
+          sed -i "s|WORKER_URL_PLACEHOLDER|$WORKER_URL|g" web/index.html
+          grep -n "const WORKER_URL" web/index.html
+
       - name: 上传 Pages 产物
         uses: actions/upload-pages-artifact@v3
         with:
@@ -39,11 +61,3 @@ jobs:
       - name: 部署到 GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4
-
-      # 部署 Worker 到 Cloudflare
-      - name: 部署 Worker 到 Cloudflare
-        uses: cloudflare/wrangler-action@v3
-        with:
-          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          workingDirectory: web
-          command: deploy

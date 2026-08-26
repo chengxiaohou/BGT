@@ -342,7 +342,7 @@
         </div>
 
         <footer>
-            <a href="https://github.com/chengxiaohou/Bili-Subtitles" target="_blank">Bili-Subtitles</a>
+            <a href="https://github.com/chengxiaohou/BGT" target="_blank">Bili-Subtitles（GitHub 仓库）</a>
         </footer>
     </div>
 
@@ -413,6 +413,11 @@
 
         // ── 提取字幕 ──
         async function extract() {
+            if (WORKER_URL === "WORKER_URL_PLACEHOLDER") {
+                showError('页面缺少后端地址（WORKER_URL_PLACEHOLDER 未被替换）。线上版本会自动注入，本地调试请改用 wrangler dev。');
+                return;
+            }
+
             const url = document.getElementById('url').value.trim();
             if (!url) { showError('请输入 B站视频链接'); document.getElementById('url').focus(); return; }
 
