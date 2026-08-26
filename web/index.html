@@ -16,8 +16,8 @@
             --input-border: #d2d2d7;
             --input-focus: #0071e3;
             --input-focus-shadow: rgba(0,113,227,0.15);
-            --btn-primary-bg: #0071e3;
-            --btn-primary-hover: #0060c9;
+            --btn-primary-bg: #fb7299;
+            --btn-primary-hover: #e55c84;
             --btn-primary-disabled: #999;
             --btn-secondary-bg: #e8e8ed;
             --btn-secondary-hover: #d2d2d7;
@@ -47,8 +47,8 @@
             --input-border: #48484a;
             --input-focus: #0a84ff;
             --input-focus-shadow: rgba(10,132,255,0.2);
-            --btn-primary-bg: #0a84ff;
-            --btn-primary-hover: #409cff;
+            --btn-primary-bg: #fb7299;
+            --btn-primary-hover: #e55c84;
             --btn-primary-disabled: #555;
             --btn-secondary-bg: #3a3a3c;
             --btn-secondary-hover: #48484a;
@@ -399,7 +399,7 @@
             border-radius: 16px;
             font-size: 13px;
             cursor: pointer;
-            color: var(--text);
+            color: var(--btn-primary-bg);
             transition: background 0.15s;
             white-space: nowrap;
         }
@@ -450,8 +450,11 @@
         }
         .video-list-modal .modal-body {
             overflow-y: auto;
-            scrollbar-gutter: stable;
+            scrollbar-width: none;
             flex: 1;
+        }
+        .video-list-modal .modal-body::-webkit-scrollbar {
+            display: none;
         }
         .video-item {
             display: flex;
@@ -485,9 +488,9 @@
             flex-shrink: 0;
         }
         .video-item .v-status.extracted { color: var(--text-secondary); }
-        .video-item .v-status.unextracted { color: #fb7299; font-weight: 600; }
+        .video-item .v-status.unextracted { color: var(--btn-primary-bg); font-weight: 600; }
         .video-item.extracted .v-title { color: var(--text-secondary); }
-        .video-item.unextracted .v-title { color: #fb7299; }
+        .video-item.unextracted .v-title { color: var(--btn-primary-bg); }
 
         /* ── 关注按钮 ── */
         .follow-btn {
@@ -558,10 +561,6 @@
 
         <div class="error-banner" id="errorBanner"></div>
 
-        <div class="card">
-            <div class="log-area" id="logArea"></div>
-        </div>
-
         <div class="card result-area" id="resultArea">
             <div class="result-header">
                 <span class="result-title" id="resultTitle"></span>
@@ -575,6 +574,10 @@
                 <button class="btn btn-secondary" onclick="download('txt')">下载 .txt</button>
                 <button class="btn btn-secondary" onclick="download('srt')">下载 .srt</button>
             </div>
+        </div>
+
+        <div class="card">
+            <div class="log-area" id="logArea"></div>
         </div>
 
         <div class="modal-overlay" id="settingsModal" onclick="closeSettings(event)">
@@ -626,7 +629,7 @@
 
     <script>
         // ── 配置：部署时由 GitHub Actions 替换为真实地址 ──
-        const WORKER_URL = "__WORKER_URL__";
+        const WORKER_URL = "https://bili-subtitles.gold-trade.workers.dev";
 
         let _result = null;
 
