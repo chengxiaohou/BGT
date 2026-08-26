@@ -47,6 +47,10 @@ async function biliApiGet(url, cookieStr) {
 let cachedBuvidCookie = "";
 let cachedBuvidAt = 0;
 
+// 视频列表缓存（5 分钟 TTL）
+const videoListCache = new Map();
+const VIDEO_LIST_TTL = 5 * 60 * 1000;
+
 function generateBuvid() {
   const hex = () => Math.floor(Math.random() * 16).toString(16);
   const uuid = Array.from({ length: 8 }, hex).join("") + "-" +
@@ -61,49 +65,11 @@ async function getBuvidCookies() {
   if (cachedBuvidCookie && Date.now() - cachedBuvidAt < 10 * 60 * 1000) {
     return cachedBuvidCookie;
   }
-  try {
-    // 优先用 socket 调 SPI 接口（避免 CF-* 头），失败再用 fetch
-    let spiData = null;
-    try {
-      const socketResp = await socketRequest("https://api.bilibili.com/x/frontend/finger/spi", {
-        headers: BILI_HEADERS,
-      });
-      if (socketResp.status === 200) {
-        spiData = JSON.parse(socketResp.body);
-      }
-    } catch {}
-    if (!spiData) {
-      try {
-        const fetchResp = await fetch("https://api.bilibili.com/x/frontend/finger/spi", {
-          headers: BILI_HEADERS,
-        });
-        if (fetchResp.status === 200) spiData = await fetchResp.json();
-      } catch {}
-    }
-    const parts = [];
-    if (spiData?.data) {
-      const { b_3, b_4 } = spiData.data;
-      if (b_3) parts.push(`buvid3=${b_3}`);
-      if (b_4) parts.push(`buvid4=${b_4}`);
-    }
-    // 无论 SPI 是否成功，都生成保底标识
-    if (!parts.some(p => p.startsWith("buvid3"))) {
-      parts.push(`buvid3=${generateBuvid()}infoc`);
-    }
-    if (!parts.some(p => p.startsWith("buvid4"))) {
-      parts.push(`buvid4=FD${generateBuvid()}${Date.now()}-infoc`);
-    }
-    const rand = () => Math.floor(Math.random() * 16).toString(16);
-    parts.push(`b_nut=${Math.floor(Date.now() / 1000)}`);
-    parts.push(`b_lsid=${Array.from({ length: 32 }, rand).join("")}`);
-    cachedBuvidCookie = parts.join("; ");
-    cachedBuvidAt = Date.now();
-  } catch {
-    const rand = () => Math.floor(Math.random() * 16).toString(16);
-    const now = Date.now();
-    cachedBuvidCookie = `buvid3=${generateBuvid()}infoc; buvid4=FD${generateBuvid()}${now}-infoc; b_nut=${Math.floor(now / 1000)}; b_lsid=${Array.from({ length: 32 }, rand).join("")}`;
-    cachedBuvidAt = now;
-  }
+  // 直接本地生成 buvid，跳过 SPI 调用以节省一次 socket 连接开销
+  const rand = () => Math.floor(Math.random() * 16).toString(16);
+  const now = Date.now();
+  cachedBuvidCookie = `buvid3=${generateBuvid()}infoc; buvid4=FD${generateBuvid()}${now}-infoc; b_nut=${Math.floor(now / 1000)}; b_lsid=${Array.from({ length: 32 }, rand).join("")}`;
+  cachedBuvidAt = now;
   return cachedBuvidCookie;
 }
 
@@ -451,39 +417,68 @@ async function handleUpVideos(request) {
     const name = body.name || "";
     if (!mid) return corsResponse({ error: "缺少 UP 主 ID" }, 400);
 
+    // 检查缓存
+    const cacheKey = mid;
+    const cached = videoListCache.get(cacheKey);
+    if (cached && Date.now() - cached.at < VIDEO_LIST_TTL) {
+      return corsResponse({ videos: cached.videos });
+    }
+
     let data = null;
+    const buvid = await getBuvidCookies();
 
-    // 方式1: 空间 API（通过 socket 直接请求，绕过 Cloudflare 限制）
-    try {
-      const buvid = await getBuvidCookies();
-      const resp = await socketRequest(
-        `https://api.bilibili.com/x/space/arc/search?mid=${mid}&ps=10&pn=1&order=pubdate`,
-        { headers: { ...BILI_HEADERS, Cookie: buvid } }
-      );
-      if (resp.status === 200) {
-        const json = JSON.parse(resp.body);
-        if (json.code === 0 && json.data?.list?.vlist?.length) {
-          data = json;
-        }
-      }
-    } catch (e) { data = null; }
+    // 并行尝试两种方式，谁先返回有效数据就用谁
+    const attempts = [];
 
-    // 方式2: 搜索该 UP 主的视频
-    if (!data && name) {
+    // 方式1: 空间 API（socket 直连）
+    attempts.push((async () => {
       try {
-        const searchData = await biliApiGet(
-          `https://api.bilibili.com/x/web-interface/search/type?search_type=video&keyword=${encodeURIComponent(name)}&ps=50&pn=1`,
-          await getBuvidCookies()
+        const resp = await socketRequest(
+          `https://api.bilibili.com/x/space/arc/search?mid=${mid}&ps=10&pn=1&order=pubdate`,
+          { headers: { ...BILI_HEADERS, Cookie: buvid } }
         );
-        if (searchData && searchData.code === 0 && searchData.data?.result) {
-          // 搜索 API 返回的视频列表，按 mid 过滤
-          const filtered = searchData.data.result.filter(v => v.bvid);
-          if (filtered.length > 0) {
-            // 取前 10 个
-            data = { code: 0, data: { list: { vlist: filtered.slice(0, 10) } } };
+        if (resp.status === 200) {
+          const json = JSON.parse(resp.body);
+          if (json.code === 0 && json.data?.list?.vlist?.length) {
+            return json;
           }
         }
-      } catch (e) {}
+      } catch {}
+      return null;
+    })());
+
+    // 方式2: 搜索 API（仅当有名称时）
+    if (name) {
+      attempts.push((async () => {
+        try {
+          const searchData = await biliApiGet(
+            `https://api.bilibili.com/x/web-interface/search/type?search_type=video&keyword=${encodeURIComponent(name)}&ps=50&pn=1`,
+            buvid
+          );
+          if (searchData && searchData.code === 0 && searchData.data?.result) {
+            // 按 mid 过滤（只保留该 UP 主的视频），再按发布时间排序
+            let filtered = searchData.data.result.filter(v => v.bvid && v.mid === mid);
+            if (filtered.length < 3) {
+              // mid 过滤后太少，不限定 mid 再试一次
+              filtered = searchData.data.result.filter(v => v.bvid);
+            }
+            filtered.sort((a, b) => (b.pubdate || 0) - (a.pubdate || 0));
+            if (filtered.length > 0) {
+              return { code: 0, data: { list: { vlist: filtered.slice(0, 10) } } };
+            }
+          }
+        } catch {}
+        return null;
+      })());
+    }
+
+    // 等待所有尝试，取第一个成功的结果
+    const results = await Promise.allSettled(attempts);
+    for (const r of results) {
+      if (r.status === 'fulfilled' && r.value) {
+        data = r.value;
+        break;
+      }
     }
 
     if (!data) {
@@ -501,7 +496,11 @@ async function handleUpVideos(request) {
         length: v.length || v.duration || "",
         play: v.play,
       }))
-      .sort((a, b) => (b.created || 0) - (a.created || 0)); // 按发布时间倒序（最新在上）
+      .sort((a, b) => (b.created || 0) - (a.created || 0));
+
+    // 写入缓存
+    videoListCache.set(cacheKey, { videos, at: Date.now() });
+
     return corsResponse({ videos });
   } catch (err) {
     return corsResponse({ error: "获取视频列表出错: " + err.message }, 500);

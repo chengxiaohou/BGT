@@ -98,6 +98,7 @@
             font-weight: 400;
             color: var(--text-secondary);
             margin-top: 8px;
+            font-family: "SF Mono", "Menlo", "Monaco", "Consolas", monospace;
         }
         header h1 {
             font-size: 28px;
@@ -357,14 +358,14 @@
         .log-area .log-info { color: var(--log-text); }
         .log-area .log-warn { color: var(--log-warn); }
 
-        .result-area { display: none; }
+        .result-area { display: none; padding-top: 16px; padding-bottom: 16px; }
         .result-area.active { display: block; }
         .result-header {
             display: flex;
             align-items: center;
             gap: 10px;
             flex-wrap: wrap;
-            margin-bottom: 12px;
+            margin-bottom: 8px;
         }
         .result-title {
             font-size: 17px;
@@ -379,7 +380,7 @@
             font-size: 14px;
             color: var(--text-secondary);
             line-height: 1.7;
-            max-height: 400px;
+            max-height: 300px;
             overflow-y: auto;
             white-space: pre-wrap;
             word-break: break-all;
@@ -389,7 +390,7 @@
             display: flex;
             gap: 6px;
             justify-content: center;
-            margin-top: 12px;
+            margin-top: 8px;
         }
 
         .error-banner {
@@ -559,7 +560,7 @@
 <body>
     <div class="container">
         <header>
-            <h1>UP UP</h1>
+            <h1>UP UP UP</h1>
         </header>
 
         <div class="up-section" id="upSection">
@@ -1143,7 +1144,7 @@
             const modal = document.getElementById('videoListModal');
             const body = document.getElementById('videoListBody');
             const title = document.getElementById('videoListTitle');
-            title.textContent = name + ' 的投稿';
+            title.innerHTML = '<span style="color:var(--btn-primary-bg)">' + escapeHtml(name) + '</span> 的投稿';
             modal.classList.add('active');
             body.innerHTML = '<div style="text-align:center;padding:24px;color:var(--text-secondary)">加载中...</div>';
 
