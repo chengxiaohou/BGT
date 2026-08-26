@@ -1008,7 +1008,16 @@
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ mid, name })
                 });
-                const data = await resp.json();
+                if (!resp.ok) {
+                    body.innerHTML = '<div style="text-align:center;padding:24px;color:var(--log-error)">HTTP ' + resp.status + ': ' + resp.statusText + '</div>';
+                    return;
+                }
+                const text = await resp.text();
+                if (!text) {
+                    body.innerHTML = '<div style="text-align:center;padding:24px;color:var(--log-error)">服务器返回了空响应</div>';
+                    return;
+                }
+                const data = JSON.parse(text);
                 if (data.error) {
                     body.innerHTML = '<div style="text-align:center;padding:24px;color:var(--log-error)">' + escapeHtml(data.error) + '</div>';
                     return;
