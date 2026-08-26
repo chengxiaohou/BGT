@@ -132,18 +132,63 @@ function extractBvid(text) {
   return match[0];
 }
 
-async function getVideoInfo(bvid, cookieStr) {
-  const data = await biliApiGet(
-    `https://api.bilibili.com/x/web-interface/view?bvid=${bvid}`,
-    cookieStr
-  );
-  if (data.code !== 0) throw new Error(data.message || "获取视频信息失败");
-  return data.data;
+// 提取 aid 从 url，尝试回退解析
+function extractAid(urlOrBvid) {
+  // URL 格式：...?aid=123456 或者 /av123456
+  const aidMatch = urlOrBvid.match(/[?&]aid=(\d+)/);
+  if (aidMatch) return aidMatch[1];
+  const avMatch = urlOrBvid.match(/av(\d+)/i);
+  if (avMatch) return avMatch[1];
+  return null;
+}
+
+// 获取视频信息（aid/cid/title/owner/pubdate）
+// 先尝试 view API，失败再从 player 拿（player 有时没有 title）
+async function getVideoInfo(bvid, cookieStr, url) {
+  const aidFromUrl = extractAid(url || bvid);
+  let viewUrl = `https://api.bilibili.com/x/web-interface/view?bvid=${bvid}`;
+  if (aidFromUrl) viewUrl += `&aid=${aidFromUrl}`;
+
+  try {
+    const data = await biliApiGet(viewUrl, cookieStr);
+    if (data.code === 0) {
+      return {
+        aid: data.data.aid,
+        cid: data.data.cid,
+        title: data.data.title,
+        uploader: data.data.owner?.name || "",
+        pubdate: data.data.pubdate,
+      };
+    }
+  } catch (e) {
+    // view 失败，继续尝试 player
+  }
+
+  // 从 player API 获取，必须 bvid + cid？实际上只要 bvid 也能拿到 cid 和 aid
+  try {
+    const data = await biliApiGet(
+      `https://api.bilibili.com/x/player/wbi/v2?bvid=${bvid}${aidFromUrl ? `&aid=${aidFromUrl}` : ""}`,
+      cookieStr
+    );
+    if (data.code === 0 && data.data?.cid) {
+      return {
+        aid: data.data.aid,
+        cid: data.data.cid,
+        title: data.data.title || data.data.video_title || "未知标题",
+        uploader: (data.data.owner?.name || ""),
+        pubdate: data.data.pubdate || Math.floor(Date.now() / 1000),
+      };
+    }
+  } catch (e) {
+    // 都失败了，抛出
+  }
+
+  throw new Error("无法获取视频信息，可能需要登录后上传 Cookie");
 }
 
 async function getSubtitleUrls(bvid, cid, cookieStr) {
   const data = await biliApiGet(
-    `https://api.bilibili.com/x/player/v2?bvid=${bvid}&cid=${cid}`,
+    `https://api.bilibili.com/x/player/wbi/v2?bvid=${bvid}&cid=${cid}`,
     cookieStr
   );
   if (data.code !== 0) return [];
@@ -260,26 +305,7 @@ export default {
         const socketResp = await socketRequest(`https://api.bilibili.com/x/player/v2?bvid=${bvid}&cid=1`, {
           headers: { ...BILI_HEADERS, Cookie: cookieStr },
         });
-        results.player_full_status = socketResp.status;
-        // 检查 player 完整响应中是否有 page 信息
-        const respBody = socketResp.status === 200 ? socketResp.body : "";
-        if (respBody) {
-          const data = JSON.parse(respBody);
-          const dd = data?.data || {};
-          results.player_keys = Object.keys(dd);
-          results.player_aid = dd.aid;
-          results.player_cid = dd.cid;
-          results.player_subtitles = dd.subtitle?.subtitles?.length || 0;
-          results.player_has_page = !!dd.pages;
-          results.player_page_count = dd.pages?.length;
-          // 检查是否有 pages 或 video_data
-          for (const key of ["pages", "video_data", "playlist", "video_list"]) {
-            if (dd[key]) {
-              results[`player_${key}_count`] = dd[key].length;
-              if (dd[key][0]) results[`player_${key}_0_cid`] = dd[key][0].cid;
-            }
-          }
-        }
+        results.player_full = { status: socketResp.status, body: socketResp.body.slice(0, 5000) };
       } catch (e) {
         results.player_full = { error: e.message };
       }
