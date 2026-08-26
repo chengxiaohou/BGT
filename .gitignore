@@ -15,3 +15,6 @@ output/
 
 # 语音识别模型（体积大，按需下载）
 models/
+
+# wrangler 本地缓存
+web/.wrangler/

@@ -104,10 +104,10 @@ def get_video_info(bvid: str) -> Dict[str, Any]:
     return data["data"]
 
 
-def get_subtitle_urls(bvid: str, cid: int) -> List[Dict[str, str]]:
+def get_subtitle_urls(bvid: str, cid: int, cookies_file: str = None) -> List[Dict[str, str]]:
     url = f"https://api.bilibili.com/x/player/v2?bvid={bvid}&cid={cid}"
     headers = _HEADERS
-    response = requests.get(url, headers=headers)
+    response = requests.get(url, headers=headers, cookies=_load_cookies(cookies_file) if cookies_file else None)
     response.raise_for_status()
     data = response.json()
     if data.get("code") != 0:
@@ -139,6 +139,18 @@ def fetch_subtitle(url: str) -> str:
         if "content" in item:
             text_lines.append(item["content"])
     return "\n".join(text_lines)
+
+
+def _load_cookies(cookies_file: str) -> dict:
+    """从 Netscape 格式 Cookie 文件里提取 bilibili.com 的 Cookie 键值对。"""
+    import http.cookiejar
+    jar = http.cookiejar.MozillaCookieJar(cookies_file)
+    jar.load()
+    cookies = {}
+    for c in jar:
+        if "bilibili.com" in c.domain:
+            cookies[c.name] = c.value
+    return cookies
 
 
 def get_audio_url(bvid: str, cid: int) -> Optional[str]:

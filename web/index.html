@@ -303,7 +303,7 @@
     <div class="container">
         <header>
             <h1>B站字幕提取</h1>
-            <p>粘贴 B站视频链接，获取 AI 字幕 / CC 字幕 / 语音识别结果</p>
+            <p>粘贴 B站视频链接，获取 AI 字幕 / CC 字幕</p>
             <button class="theme-toggle" id="themeToggle" onclick="toggleTheme()" title="切换主题">
                 <svg id="themeIcon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                     <circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/>
@@ -311,7 +311,6 @@
             </button>
         </header>
 
-        <!-- 输入卡片 -->
         <div class="card">
             <div class="form-group">
                 <label for="url">B站视频链接</label>
@@ -320,20 +319,17 @@
             <div class="form-group">
                 <label for="cookies">Cookie 文件（可选）</label>
                 <input type="file" id="cookies" accept=".txt,.cookies">
-                <div class="hint">上传 B站登录 Cookie（Netscape 格式），可获取 AI 识别字幕。如没有可跳过，仅使用公开 CC 字幕或语音识别。</div>
+                <div class="hint">上传 B站登录 Cookie（Netscape 格式），可获取 AI 识别字幕。如没有可跳过，仅使用公开 CC 字幕。</div>
             </div>
             <button class="btn btn-primary" id="extractBtn" onclick="extract()">提取字幕</button>
         </div>
 
-        <!-- 错误提示 -->
         <div class="error-banner" id="errorBanner"></div>
 
-        <!-- 日志 -->
         <div class="card">
             <div class="log-area" id="logArea"></div>
         </div>
 
-        <!-- 结果 -->
         <div class="card result-area" id="resultArea">
             <div class="result-header">
                 <span class="result-title" id="resultTitle"></span>
@@ -351,13 +347,15 @@
     </div>
 
     <script>
+        // ── 配置：部署时替换为实际 Worker 地址 ──
+        const WORKER_URL = "WORKER_URL_PLACEHOLDER";
+
         let _result = null;
 
-        // --- 主题切换 ---
+        // ── 主题 ──
         function getTheme() {
             return localStorage.getItem('theme') || (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
         }
-
         function applyTheme(theme) {
             document.documentElement.setAttribute('data-theme', theme);
             const icon = document.getElementById('themeIcon');
@@ -371,14 +369,10 @@
             }
             localStorage.setItem('theme', theme);
         }
-
-        function toggleTheme() {
-            applyTheme(getTheme() === 'dark' ? 'light' : 'dark');
-        }
-
+        function toggleTheme() { applyTheme(getTheme() === 'dark' ? 'light' : 'dark'); }
         applyTheme(getTheme());
 
-        // --- 日志 ---
+        // ── 日志 ──
         function log(msg, type) {
             const el = document.getElementById('logArea');
             el.classList.add('active');
@@ -386,32 +380,14 @@
             el.innerHTML += `<span class="${cls}">${escapeHtml(msg)}</span>\n`;
             el.scrollTop = el.scrollHeight;
         }
-
-        function escapeHtml(s) {
-            const d = document.createElement('div');
-            d.textContent = s;
-            return d.innerHTML;
-        }
-
-        function clearLog() {
-            document.getElementById('logArea').innerHTML = '';
-            document.getElementById('logArea').classList.remove('active');
-        }
-
-        function showError(msg) {
-            const el = document.getElementById('errorBanner');
-            el.textContent = msg;
-            el.classList.add('active');
-        }
-
-        function hideError() {
-            document.getElementById('errorBanner').classList.remove('active');
-        }
+        function escapeHtml(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
+        function clearLog() { document.getElementById('logArea').innerHTML = ''; document.getElementById('logArea').classList.remove('active'); }
+        function showError(msg) { const el = document.getElementById('errorBanner'); el.textContent = msg; el.classList.add('active'); }
+        function hideError() { document.getElementById('errorBanner').classList.remove('active'); }
 
         function showResult(result) {
             _result = result;
-            const area = document.getElementById('resultArea');
-            area.classList.add('active');
+            document.getElementById('resultArea').classList.add('active');
             document.getElementById('resultTitle').textContent = result.title || '视频文本';
             document.getElementById('resultText').textContent = result.text || '（无文本内容）';
         }
@@ -419,14 +395,9 @@
         function setLoading(loading) {
             const btn = document.getElementById('extractBtn');
             btn.disabled = loading;
-            if (loading) {
-                btn.innerHTML = '<span class="spinner"></span>处理中…';
-            } else {
-                btn.innerHTML = '提取字幕';
-            }
+            btn.innerHTML = loading ? '<span class="spinner"></span>处理中…' : '提取字幕';
         }
 
-        // --- 构建 txt 文件头（与 CLI 版 build_txt_header 一致） ---
         function buildTxtHeader(title, uploader, pubdate) {
             const lines = [];
             if (title) lines.push('标题：' + title);
@@ -440,14 +411,10 @@
             return lines.join('\n');
         }
 
-        // --- 提取字幕 ---
+        // ── 提取字幕 ──
         async function extract() {
             const url = document.getElementById('url').value.trim();
-            if (!url) {
-                showError('请输入 B站视频链接');
-                document.getElementById('url').focus();
-                return;
-            }
+            if (!url) { showError('请输入 B站视频链接'); document.getElementById('url').focus(); return; }
 
             hideError();
             clearLog();
@@ -457,23 +424,22 @@
 
             const formData = new FormData();
             formData.append('url', url);
-
             const fileInput = document.getElementById('cookies');
             if (fileInput.files.length > 0) {
                 formData.append('cookies', fileInput.files[0]);
             }
 
             try {
-                const resp = await fetch('/extract', { method: 'POST', body: formData });
+                const resp = await fetch(WORKER_URL + '/api/extract', { method: 'POST', body: formData });
                 const data = await resp.json();
 
                 if (data.messages && data.messages.length) {
-                    for (const msg of data.messages) {
-                        log(msg);
-                    }
+                    for (const msg of data.messages) log(msg);
                 }
 
                 if (data.success && data.text) {
+                    const name = [data.title, data.uploader, data.pubdate ? new Date(data.pubdate * 1000).toISOString().slice(0, 10) : ''].filter(Boolean).join('_').replace(/[<>:"/\\|?*]/g, '_');
+                    data.download_name = name;
                     showResult(data);
                 } else if (data.success && !data.text) {
                     log('处理完成，但未提取到文本内容', 'warn');
@@ -482,47 +448,34 @@
                     showError(data.error || '处理失败，请检查链接是否正确');
                 }
             } catch (err) {
-                log('网络请求失败: ' + err.message, 'error');
-                showError('网络请求失败，请稍后重试');
+                log('请求失败: ' + err.message, 'error');
+                showError('请求失败，请检查 Worker 地址是否正确');
             } finally {
                 setLoading(false);
             }
         }
 
-        // --- 下载 ---
+        // ── 下载 ──
         function download(fmt) {
             if (!_result) return;
             const name = (_result.download_name || 'subtitle') + '.' + fmt;
-
             let content;
             if (fmt === 'srt') {
                 content = _result.srt_content || '';
             } else {
-                // txt 下载时加上标题/日期/发布者头部（与 CLI 版一致）
-                const header = buildTxtHeader(_result.title, _result.uploader, _result.pubdate);
-                content = header + (_result.text || '');
+                content = buildTxtHeader(_result.title, _result.uploader, _result.pubdate) + (_result.text || '');
             }
-
-            if (!content) {
-                log('没有可用的 ' + fmt.toUpperCase() + ' 内容', 'warn');
-                return;
-            }
-
+            if (!content) { log('没有可用的 ' + fmt.toUpperCase() + ' 内容', 'warn'); return; }
             const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
             const url = URL.createObjectURL(blob);
             const a = document.createElement('a');
-            a.href = url;
-            a.download = name;
-            document.body.appendChild(a);
-            a.click();
+            a.href = url; a.download = name;
+            document.body.appendChild(a); a.click();
             document.body.removeChild(a);
             URL.revokeObjectURL(url);
         }
 
-        // 回车键触发提取
-        document.getElementById('url').addEventListener('keydown', function(e) {
-            if (e.key === 'Enter') extract();
-        });
+        document.getElementById('url').addEventListener('keydown', function(e) { if (e.key === 'Enter') extract(); });
     </script>
 </body>
 </html>

@@ -1,17 +1,49 @@
-name: 部署到 Render
+name: 部署前端到 GitHub Pages + Worker 到 Cloudflare
 
 on:
   push:
     branches: [main]
   workflow_dispatch:
 
+# Pages 部署需要此权限
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# 只允许一个并发部署
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - uses: actions/checkout@v4
-      - name: 触发 Render 部署
+
+      # 将 Worker URL 注入前端页面
+      - name: 替换 Worker 地址
         run: |
-          curl -s -X POST "$RENDER_DEPLOY_HOOK" -w "\nHTTP %{http_code}\n"
-        env:
-          RENDER_DEPLOY_HOOK: ${{ secrets.RENDER_DEPLOY_HOOK }}
+          sed -i "s|WORKER_URL_PLACEHOLDER|${{ vars.WORKER_URL || 'http://localhost:8787' }}|g" web/index.html
+
+      # 部署前端到 GitHub Pages
+      - name: 上传 Pages 产物
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: web
+
+      - name: 部署到 GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
+
+      # 部署 Worker 到 Cloudflare
+      - name: 部署 Worker 到 Cloudflare
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          workingDirectory: web
+          command: deploy

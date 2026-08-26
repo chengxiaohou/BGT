@@ -15,8 +15,6 @@ from .bilibili import (
     get_subtitle_urls,
     fetch_subtitle,
     get_audio_url,
-    download_subtitles_with_ytdlp,
-    detect_installed_browsers,
     srt_to_text,
 )
 from .transcriber import build_output_filename, build_txt_header
@@ -27,18 +25,18 @@ app.config["TEMPLATES_AUTO_RELOAD"] = True  # 开发时模板修改自动生效
 
 
 def _process_video_web(url: str, cookies_file: str = None) -> dict:
-    """Web 版视频处理逻辑，返回结果字典，不依赖 click.echo。
+    """Web 版视频处理逻辑，不依赖 yt-dlp，直接调 B 站 API。
 
     返回:
         {
             "success": bool,
-            "messages": [str, ...],     # 处理过程中的日志信息
-            "text": str,                # 纯文本字幕
-            "srt_content": str,         # SRT 格式字幕
+            "messages": [str, ...],
+            "text": str,
+            "srt_content": str,
             "title": str,
             "uploader": str,
             "pubdate": int,
-            "error": str,               # 错误信息（仅 success=False 时）
+            "error": str,
         }
     """
     messages = []
@@ -65,64 +63,62 @@ def _process_video_web(url: str, cookies_file: str = None) -> dict:
         result["uploader"] = (video_info.get("owner") or {}).get("name", "")
         result["pubdate"] = video_info.get("pubdate")
 
-        # 1) 优先尝试 yt-dlp 抓取 AI 字幕
-        sub = None
+        # 1) 有 Cookie 时先尝试获取 AI 字幕
+        subtitles = []
         if cookies_file:
-            messages.append("正在使用上传的 Cookie 尝试获取 AI 字幕…")
-            try:
-                sub = download_subtitles_with_ytdlp(bvid, cookies_file=cookies_file)
-            except RuntimeError as exc:
-                messages.append(f"Cookie 方式失败：{exc}")
-        else:
-            # 检测本机浏览器（在服务器上通常无可用浏览器，跳过）
-            messages.append("未提供 Cookie，尝试获取公开字幕…")
+            messages.append("正在使用上传的 Cookie 获取字幕…")
+            subtitles = get_subtitle_urls(bvid, cid, cookies_file=cookies_file)
 
-        if sub:
-            messages.append(f"使用字幕: {sub['lang_name']}")
-            result["srt_content"] = sub["content"]
-            result["text"] = srt_to_text(sub["content"])
-        else:
-            # 2) 尝试手动 CC 字幕接口
+        if not subtitles:
+            # 2) 无 Cookie 或 Cookie 没拿到字幕时，尝试公开 CC 字幕
+            messages.append("尝试获取公开字幕…")
             subtitles = get_subtitle_urls(bvid, cid)
-            if subtitles:
-                lang_names = [s["lang_name"] for s in subtitles]
-                messages.append(f"发现公开字幕: {', '.join(lang_names)}")
-                chinese_sub = next(
-                    (s for s in subtitles if s["lang"] in ("zh-CN", "zh")), None
-                )
-                sub = chinese_sub or subtitles[0]
-                messages.append(f"使用字幕: {sub['lang_name']}")
-                result["text"] = fetch_subtitle(sub["url"])
-            else:
-                # 3) 尝试语音识别
-                messages.append("未发现字幕，尝试语音识别…")
-                audio_url = get_audio_url(bvid, cid)
-                if audio_url:
-                    try:
-                        from .asr_sherpa import extract_audio_and_transcribe_paraformer
 
-                        text, segments = extract_audio_and_transcribe_paraformer(
-                            audio_url, show_progress=False
-                        )
-                        result["text"] = text
-                        # 有 segments 时可以生成 SRT
-                        if segments:
-                            from .transcriber import format_timestamp
+        if subtitles:
+            lang_names = [s["lang_name"] for s in subtitles]
+            messages.append(f"发现字幕: {', '.join(lang_names)}")
+            priority = ["zh-CN", "zh-Hans", "zh", "ai-zh", "zh-Hant"]
+            chosen = None
+            for lang in priority:
+                for s in subtitles:
+                    if s["lang"] == lang:
+                        chosen = s
+                        break
+                if chosen:
+                    break
+            if not chosen:
+                chosen = subtitles[0]
+            messages.append(f"使用字幕: {chosen['lang_name']}")
+            result["text"] = fetch_subtitle(chosen["url"])
+        else:
+            # 3) 都没有，走语音识别
+            messages.append("未发现字幕，尝试语音识别…")
+            audio_url = get_audio_url(bvid, cid)
+            if audio_url:
+                try:
+                    from .asr_sherpa import extract_audio_and_transcribe_paraformer
 
-                            srt_lines = []
-                            for i, seg in enumerate(segments, 1):
-                                start = format_timestamp(seg["start"])
-                                end = format_timestamp(seg["end"])
-                                srt_lines.append(f"{i}\n{start} --> {end}\n{seg['text']}\n")
-                            result["srt_content"] = "\n".join(srt_lines) + "\n"
-                        messages.append("语音识别完成")
-                    except ImportError:
-                        messages.append("语音识别模块未安装（sherpa-onnx），跳过")
-                        result["error"] = "没有可用的字幕，且语音识别模块未安装"
-                        result["success"] = False
-                else:
-                    result["error"] = "无法获取音频链接，且没有可用的字幕"
+                    text, segments = extract_audio_and_transcribe_paraformer(
+                        audio_url, show_progress=False
+                    )
+                    result["text"] = text
+                    if segments:
+                        from .transcriber import format_timestamp
+
+                        srt_lines = []
+                        for i, seg in enumerate(segments, 1):
+                            start = format_timestamp(seg["start"])
+                            end = format_timestamp(seg["end"])
+                            srt_lines.append(f"{i}\n{start} --> {end}\n{seg['text']}\n")
+                        result["srt_content"] = "\n".join(srt_lines) + "\n"
+                    messages.append("语音识别完成")
+                except ImportError:
+                    messages.append("语音识别模块未安装（sherpa-onnx），跳过")
+                    result["error"] = "没有可用的字幕，且语音识别模块未安装"
                     result["success"] = False
+            else:
+                result["error"] = "无法获取音频链接，且没有可用的字幕"
+                result["success"] = False
 
     except ValueError as e:
         result["success"] = False
