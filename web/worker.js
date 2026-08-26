@@ -335,7 +335,7 @@ export default {
       const cid = videoInfo.cid;
       messages.push(`视频标题: ${title}`);
       result.title = title;
-      result.uploader = videoInfo.owner?.name || "";
+      result.uploader = videoInfo.uploader || "";
       result.pubdate = videoInfo.pubdate;
 
       // 3) 获取字幕

@@ -205,6 +205,23 @@
             padding: 6px 16px;
         }
         .btn-secondary:hover { background: var(--btn-secondary-hover); }
+        .btn-link {
+            background: none;
+            border: none;
+            color: var(--btn-primary-bg);
+            cursor: pointer;
+            font-size: 12px;
+            text-decoration: underline;
+            padding: 0;
+            margin-left: 4px;
+        }
+        .btn-link:hover { color: var(--btn-primary-hover); }
+        .cookie-status {
+            font-size: 12px;
+            color: var(--text-secondary);
+            margin-top: 4px;
+        }
+        .cookie-status .saved { color: #34c759; }
 
         .log-area {
             background: var(--log-bg);
@@ -321,6 +338,7 @@
                 <label for="cookies">Cookie 文件（可选）</label>
                 <input type="file" id="cookies" accept=".txt,.cookies">
                 <div class="hint">上传 B站登录 Cookie（Netscape 格式），可获取 AI 识别字幕。如没有可跳过，仅使用公开 CC 字幕。</div>
+                <div class="cookie-status" id="cookieStatus"></div>
             </div>
             <button class="btn btn-primary" id="extractBtn" onclick="extract()">提取字幕</button>
         </div>
@@ -337,6 +355,7 @@
                 <div class="result-actions">
                     <button class="btn btn-secondary" onclick="download('txt')">下载 .txt</button>
                     <button class="btn btn-secondary" onclick="download('srt')">下载 .srt</button>
+                    <button class="btn btn-secondary" onclick="copyText()">复制</button>
                 </div>
             </div>
             <div class="result-text" id="resultText">处理完成，暂无文本内容</div>
@@ -374,6 +393,43 @@
         function toggleTheme() { applyTheme(getTheme() === 'dark' ? 'light' : 'dark'); }
         applyTheme(getTheme());
 
+        // ── Cookie 持久化 ──
+        const COOKIE_KEY = 'bili_cookie';
+
+        function saveCookieContent(text) {
+            try { localStorage.setItem(COOKIE_KEY, text); } catch(e) {}
+            updateCookieIndicator();
+        }
+
+        function clearCookie() {
+            localStorage.removeItem(COOKIE_KEY);
+            document.getElementById('cookies').value = '';
+            updateCookieIndicator();
+        }
+
+        function getSavedCookie() {
+            return localStorage.getItem(COOKIE_KEY);
+        }
+
+        function updateCookieIndicator() {
+            const el = document.getElementById('cookieStatus');
+            const saved = getSavedCookie();
+            if (saved) {
+                el.innerHTML = '<span class="saved">\u2713 Cookie \u5df2\u4fdd\u5b58</span><button class="btn-link" onclick="clearCookie()">\u6e05\u9664</button>';
+            } else {
+                el.innerHTML = '';
+            }
+        }
+
+        document.getElementById('cookies').addEventListener('change', function(e) {
+            const file = e.target.files[0];
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = function(ev) { saveCookieContent(ev.target.result); };
+            reader.readAsText(file);
+        });
+        updateCookieIndicator();
+
         // ── 日志 ──
         function log(msg, type) {
             const el = document.getElementById('logArea');
@@ -391,7 +447,8 @@
             _result = result;
             document.getElementById('resultArea').classList.add('active');
             document.getElementById('resultTitle').textContent = result.title || '视频文本';
-            document.getElementById('resultText').textContent = result.text || '（无文本内容）';
+            const header = buildTxtHeader(result.title, result.uploader, result.pubdate);
+            document.getElementById('resultText').textContent = header + (result.text || '（无文本内容）');
         }
 
         function setLoading(loading) {
@@ -411,6 +468,19 @@
             if (uploader) lines.push('发布者：' + uploader);
             lines.push('');
             return lines.join('\n');
+        }
+
+        // ── 复制 ──
+        function copyText() {
+            if (!_result) return;
+            const header = buildTxtHeader(_result.title, _result.uploader, _result.pubdate);
+            const content = header + (_result.text || '');
+            if (!content) { log('没有可复制的内容', 'warn'); return; }
+            navigator.clipboard.writeText(content).then(function() {
+                log('已复制到剪贴板');
+            }).catch(function() {
+                log('复制失败，请手动选择文本复制', 'error');
+            });
         }
 
         // ── 提取字幕 ──
@@ -434,6 +504,11 @@
             const fileInput = document.getElementById('cookies');
             if (fileInput.files.length > 0) {
                 formData.append('cookies', fileInput.files[0]);
+            } else {
+                const savedCookie = getSavedCookie();
+                if (savedCookie) {
+                    formData.append('cookies', new Blob([savedCookie], { type: 'text/plain' }), 'cookies.txt');
+                }
             }
 
             try {
