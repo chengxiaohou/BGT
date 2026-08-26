@@ -50,8 +50,11 @@ jobs:
       # 把真实 Worker 地址写入前端页面，再上传到 Pages
       - name: 将 Worker 地址注入前端页面
         run: |
-          sed -i "s|WORKER_URL_PLACEHOLDER|$WORKER_URL|g" web/index.html
+          sed -i "s|__WORKER_URL__|$WORKER_URL|g" web/index.html
+          echo "=== 验证 Worker URL 注入 ==="
           grep -n "const WORKER_URL" web/index.html
+          echo "=== 验证占位符检查未受影响 ==="
+          grep -n "WORKER_URL_PLACEHOLDER" web/index.html
 
       - name: 上传 Pages 产物
         uses: actions/upload-pages-artifact@v3

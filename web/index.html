@@ -350,7 +350,7 @@
 
     <script>
         // ── 配置：部署时替换为实际 Worker 地址 ──
-        const WORKER_URL = "WORKER_URL_PLACEHOLDER";
+        const WORKER_URL = "__WORKER_URL__";
 
         let _result = null;
 
@@ -415,8 +415,8 @@
 
         // ── 提取字幕 ──
         async function extract() {
-            if (WORKER_URL === "WORKER_URL_PLACEHOLDER") {
-                showError('页面缺少后端地址（WORKER_URL_PLACEHOLDER 未被替换）。线上版本会自动注入，本地调试请改用 wrangler dev。');
+            if (!WORKER_URL.startsWith("http")) {
+                showError('页面缺少后端地址（' + WORKER_URL + ' 未被替换）。线上版本会自动注入，本地调试请改用 wrangler dev。');
                 return;
             }
 
