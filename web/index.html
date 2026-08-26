@@ -450,6 +450,7 @@
         }
         .video-list-modal .modal-body {
             overflow-y: auto;
+            scrollbar-gutter: stable;
             flex: 1;
         }
         .video-item {
@@ -463,14 +464,6 @@
         }
         .video-item:last-child { border-bottom: none; }
         .video-item:hover { opacity: 0.8; }
-        .video-item .v-pic {
-            width: 60px;
-            height: 38px;
-            border-radius: 4px;
-            object-fit: cover;
-            flex-shrink: 0;
-            background: var(--result-text-bg);
-        }
         .video-item .v-info {
             flex: 1;
             min-width: 0;
@@ -1050,7 +1043,6 @@
                     const item = document.createElement('div');
                     item.className = 'video-item ' + statusClass;
                     item.innerHTML =
-                        '<img class="v-pic" src="' + (v.pic ? (WORKER_URL + '/api/img-proxy?url=' + encodeURIComponent(v.pic.startsWith('//') ? 'https:' + v.pic : v.pic)) : '') + '" alt="" onerror="this.src=\'data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2238%22><rect fill=%22%23eee%22 width=%2260%22 height=%2238%22/></svg>\'">' +
                         '<div class="v-info"><div class="v-title">' + escapeHtml(v.title) + '</div><div class="v-meta">' + dateStr + ' | ' + (v.length || '') + '</div></div>' +
                         '<span class="v-status ' + statusClass + '">' + statusText + '</span>';
                     item.onclick = function() { extractFromBvid(v.bvid, name, mid); };
