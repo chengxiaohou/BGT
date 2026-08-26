@@ -246,23 +246,33 @@ export default {
       const bvid = urlObj.searchParams.get("bvid") || "BV1uT4y1P7CX";
       const cookieStr = await getBuvidCookies();
       const results = { cookie: cookieStr, bvid };
-      // 测试 socket
+      // 测试 socket: view API
       try {
         const socketResp = await socketRequest(`https://api.bilibili.com/x/web-interface/view?bvid=${bvid}`, {
           headers: { ...BILI_HEADERS, Cookie: cookieStr },
         });
-        results.socket = { status: socketResp.status, body: socketResp.body.slice(0, 300) };
+        results.socket_view = { status: socketResp.status, body: socketResp.body.slice(0, 300) };
       } catch (e) {
-        results.socket = { error: e.message };
+        results.socket_view = { error: e.message };
       }
-      // 测试 fetch
+      // 测试 socket: player API
       try {
-        const fetchResp = await fetch(`https://api.bilibili.com/x/web-interface/view?bvid=${bvid}`, {
+        const cid = "1"; // 占位
+        const socketResp = await socketRequest(`https://api.bilibili.com/x/player/v2?bvid=${bvid}&cid=1`, {
           headers: { ...BILI_HEADERS, Cookie: cookieStr },
         });
-        results.fetch = { status: fetchResp.status, body: (await fetchResp.text()).slice(0, 300) };
+        results.socket_player = { status: socketResp.status, body: socketResp.body.slice(0, 300) };
       } catch (e) {
-        results.fetch = { error: e.message };
+        results.socket_player = { error: e.message };
+      }
+      // 测试 socket: 视频页面
+      try {
+        const socketResp = await socketRequest(`https://www.bilibili.com/video/${bvid}`, {
+          headers: { ...BILI_HEADERS, Cookie: cookieStr },
+        });
+        results.socket_page = { status: socketResp.status, body: socketResp.body.slice(0, 200) };
+      } catch (e) {
+        results.socket_page = { error: e.message };
       }
       return corsResponse(results);
     }
