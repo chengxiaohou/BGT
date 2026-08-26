@@ -4,11 +4,16 @@
 import { connect } from "cloudflare:sockets";
 
 const BILI_HEADERS = {
-  "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+  "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
   "Referer": "https://www.bilibili.com/",
   "Origin": "https://www.bilibili.com",
   "Accept": "application/json, text/plain, */*",
   "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
+  "Sec-Fetch-Dest": "empty",
+  "Sec-Fetch-Mode": "cors",
+  "Sec-Fetch-Site": "same-site",
+  "Pragma": "no-cache",
+  "Cache-Control": "no-cache",
 };
 
 const SUBTITLE_PRIORITY = ["zh-CN", "zh-Hans", "zh", "ai-zh", "zh-Hant"];
