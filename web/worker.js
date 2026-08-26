@@ -227,11 +227,13 @@ async function getSubtitleUrls(bvid, cid, cookieStr) {
   const subtitles = [];
   if (data.data?.subtitle?.subtitles) {
     for (const sub of data.data.subtitle.subtitles) {
-      subtitles.push({
-        lang: sub.lan,
-        lang_name: sub.lan_doc,
-        url: sub.subtitle_url,
-      });
+      if (sub.subtitle_url) {
+        subtitles.push({
+          lang: sub.lan,
+          lang_name: sub.lan_doc,
+          url: sub.subtitle_url,
+        });
+      }
     }
   }
   return subtitles;
@@ -250,27 +252,31 @@ function formatSrtTime(seconds) {
 
 // 下载字幕内容，同时生成纯文本与 SRT（字幕 JSON 带 from/to 时间戳）
 async function fetchSubtitle(url) {
-  if (url.startsWith("//")) url = "https:" + url;
-  const resp = await socketFetch(url, { headers: BILI_HEADERS });
-  if (resp.status !== 200) throw new Error(`字幕下载失败: HTTP ${resp.status}`);
-  let data;
   try {
-    data = JSON.parse(resp.body);
-  } catch {
-    throw new Error("字幕文件解析失败");
-  }
-  const lines = [];
-  const srtLines = [];
-  for (const item of data.body || []) {
-    if (!item.content) continue;
-    lines.push(item.content);
-    if (typeof item.from === "number" && typeof item.to === "number") {
-      srtLines.push(
-        `${srtLines.length + 1}\n${formatSrtTime(item.from)} --> ${formatSrtTime(item.to)}\n${item.content}\n`
-      );
+    if (url.startsWith("//")) url = "https:" + url;
+    const resp = await socketFetch(url, { headers: BILI_HEADERS });
+    if (resp.status !== 200) throw new Error(`HTTP ${resp.status}`);
+    let data;
+    try {
+      data = JSON.parse(resp.body);
+    } catch {
+      throw new Error("字幕文件解析失败");
     }
+    const lines = [];
+    const srtLines = [];
+    for (const item of data.body || []) {
+      if (!item.content) continue;
+      lines.push(item.content);
+      if (typeof item.from === "number" && typeof item.to === "number") {
+        srtLines.push(
+          `${srtLines.length + 1}\n${formatSrtTime(item.from)} --> ${formatSrtTime(item.to)}\n${item.content}\n`
+        );
+      }
+    }
+    return { text: lines.join("\n"), srt: srtLines.join("\n") };
+  } catch (err) {
+    throw new Error(`字幕下载失败: ${err.message}（URL: ${String(url).slice(0, 80)}）`);
   }
-  return { text: lines.join("\n"), srt: srtLines.join("\n") };
 }
 
 // 构建 CORS 响应
