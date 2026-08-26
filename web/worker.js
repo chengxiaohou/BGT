@@ -25,7 +25,8 @@ async function biliApiGet(url, cookieStr) {
   }
   // 如果 fetch 返回 412（WAF 拦截），改用 socket 重试
   if (!resp || resp.status === 412) {
-    resp = await socketApiGet(url, cookieStr);
+    // socketApiGet 直接返回解析后的 JSON
+    return await socketApiGet(url, cookieStr);
   }
   if (resp.status !== 200) {
     const text = await resp.text().catch(() => "");
@@ -176,13 +177,24 @@ function formatSrtTime(seconds) {
 async function fetchSubtitle(url) {
   try {
     if (url.startsWith("//")) url = "https:" + url;
-    const resp = await socketFetch(url, { headers: BILI_HEADERS });
-    if (resp.status !== 200) throw new Error(`HTTP ${resp.status}`);
-    let data;
+    let resp;
     try {
-      data = JSON.parse(resp.body);
+      resp = await fetch(url, { headers: BILI_HEADERS });
     } catch {
-      throw new Error("字幕文件解析失败");
+      resp = null;
+    }
+    let data;
+    if (resp && resp.status === 200) {
+      data = await resp.json();
+    } else {
+      // 降级: socket 请求
+      const socketResp = await socketRequest(url, { headers: BILI_HEADERS });
+      if (socketResp.status !== 200) throw new Error(`HTTP ${socketResp.status}`);
+      try {
+        data = JSON.parse(socketResp.body);
+      } catch {
+        throw new Error("字幕文件解析失败");
+      }
     }
     const lines = [];
     const srtLines = [];
