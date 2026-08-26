@@ -1,9 +1,5 @@
 // B站字幕提取 - Cloudflare Worker
 // 接收前端请求，代理调用 B 站 API，返回字幕文本
-//
-// 说明：B 站 WAF 会拦截带 CF-* 请求头的请求（HTTP 412），而 Workers 的
-// fetch 会自动注入这些头且无法移除。因此这里对 B 站相关请求改用底层
-// Socket API（cloudflare:sockets）手动发送 HTTP/1.1 请求，绕开该拦截。
 
 import { connect } from "cloudflare:sockets";
 
@@ -17,127 +13,32 @@ const BILI_HEADERS = {
 
 const SUBTITLE_PRIORITY = ["zh-CN", "zh-Hans", "zh", "ai-zh", "zh-Hant"];
 
-const MAX_RESPONSE_BYTES = 4 * 1024 * 1024;
-
-// ── 底层 HTTP 客户端（Socket，避免 fetch 注入 CF-* 请求头）──
-function concatChunks(chunks) {
-  const total = chunks.reduce((n, c) => n + c.length, 0);
-  const out = new Uint8Array(total);
-  let offset = 0;
-  for (const c of chunks) {
-    out.set(c, offset);
-    offset += c.length;
-  }
-  return out;
-}
-
-const CRLF = new TextEncoder().encode("\r\n");
-const CRLFCRLF = new TextEncoder().encode("\r\n\r\n");
-
-function bytesIndexOf(buf, needle, from = 0) {
-  outer: for (let i = from; i + needle.length <= buf.length; i++) {
-    for (let j = 0; j < needle.length; j++) {
-      if (buf[i + j] !== needle[j]) continue outer;
-    }
-    return i;
-  }
-  return -1;
-}
-
-// 在字节数组上解析 chunked 传输编码（chunk 大小按字节计算，
-// 不能先转字符串再切片，否则中文等多字节字符会错位）
-function decodeChunkedBytes(buf) {
-  const out = [];
-  let pos = 0;
-  while (pos < buf.length) {
-    const lineEnd = bytesIndexOf(buf, CRLF, pos);
-    if (lineEnd === -1) break;
-    const sizeText = new TextDecoder().decode(buf.slice(pos, lineEnd)).trim();
-    const size = parseInt(sizeText, 16);
-    if (!Number.isFinite(size) || size <= 0) break;
-    const chunkStart = lineEnd + 2;
-    out.push(buf.slice(chunkStart, chunkStart + size));
-    pos = chunkStart + size + 2;
-  }
-  return concatChunks(out);
-}
-
-function parseHttpResponse(buf) {
-  const headerEnd = bytesIndexOf(buf, CRLFCRLF);
-  if (headerEnd === -1) throw new Error("B站返回了无效的 HTTP 响应");
-  const lines = new TextDecoder().decode(buf.slice(0, headerEnd)).split("\r\n");
-  const status = Number((lines[0].match(/^HTTP\/1\.[01]\s+(\d+)/) || [])[1]);
-  const headers = {};
-  for (let i = 1; i < lines.length; i++) {
-    const m = lines[i].match(/^([^:]+):\s*(.*)$/);
-    if (m) headers[m[1].toLowerCase()] = m[2];
-  }
-  let body = buf.slice(headerEnd + 4);
-  if ((headers["transfer-encoding"] || "").toLowerCase().includes("chunked")) {
-    body = decodeChunkedBytes(body);
-  }
-  return { status, headers, body: new TextDecoder().decode(body) };
-}
-
-async function socketRequest(rawUrl, { headers = {}, method = "GET" } = {}) {
-  const u = new URL(rawUrl);
-  const isHttps = u.protocol === "https:";
-  const port = Number(u.port) || (isHttps ? 443 : 80);
-  const socket = connect(
-    { hostname: u.hostname, port },
-    { secureTransport: isHttps ? "on" : "off", allowHalfOpen: true }
-  );
+// 请求 B 站 JSON 接口（使用 fetch，如遇 412 则自动降级为 socket）
+async function biliApiGet(url, cookieStr) {
+  let resp;
   try {
-    const writer = socket.writable.getWriter();
-    const allHeaders = {
-      Host: u.host,
-      Connection: "close",
-      "Accept-Encoding": "identity",
-      ...headers,
-    };
-    const head =
-      `${method} ${u.pathname}${u.search} HTTP/1.1\r\n` +
-      Object.entries(allHeaders)
-        .map(([k, v]) => `${k}: ${v}`)
-        .join("\r\n") +
-      "\r\n\r\n";
-    await writer.write(new TextEncoder().encode(head));
-
-    const reader = socket.readable.getReader();
-    const chunks = [];
-    let total = 0;
-    while (true) {
-      const { value, done } = await reader.read();
-      if (done) break;
-      chunks.push(value);
-      total += value.length;
-      if (total > MAX_RESPONSE_BYTES) throw new Error("B站响应过大");
-    }
-    return parseHttpResponse(concatChunks(chunks));
-  } finally {
-    try {
-      socket.close();
-    } catch {
-      // 连接已关闭则忽略
-    }
+    resp = await fetch(url, {
+      headers: { ...BILI_HEADERS, Cookie: cookieStr },
+    });
+  } catch {
+    resp = null;
   }
-}
-
-// 自动跟随重定向（最多 3 次）
-async function socketFetch(rawUrl, options = {}, redirects = 3) {
-  const resp = await socketRequest(rawUrl, options);
-  if (
-    redirects > 0 &&
-    [301, 302, 303, 307, 308].includes(resp.status) &&
-    resp.headers.location
-  ) {
-    const next = new URL(resp.headers.location, rawUrl).toString();
-    return socketFetch(next, options, redirects - 1);
+  // 如果 fetch 返回 412（WAF 拦截），改用 socket 重试
+  if (!resp || resp.status === 412) {
+    resp = await socketApiGet(url, cookieStr);
   }
-  return resp;
+  if (resp.status !== 200) {
+    const text = await resp.text().catch(() => "");
+    throw new Error(`B站接口请求失败: HTTP ${resp.status}${text ? " - " + text.slice(0, 100) : ""}`);
+  }
+  let data;
+  try {
+    data = await resp.json();
+  } catch {
+    throw new Error("B站接口返回了非 JSON 数据");
+  }
+  return data;
 }
-
-// ── B 站接口 ──────────────────────────────────────────────
 
 // 获取匿名设备标识（buvid3/buvid4/b_nut/b_lsid），结果缓存 10 分钟
 let cachedBuvidCookie = "";
@@ -158,12 +59,12 @@ async function getBuvidCookies() {
     return cachedBuvidCookie;
   }
   try {
-    const resp = await socketFetch("https://api.bilibili.com/x/frontend/finger/spi", {
+    const resp = await fetch("https://api.bilibili.com/x/frontend/finger/spi", {
       headers: BILI_HEADERS,
     });
     const parts = [];
     if (resp.status === 200) {
-      const data = JSON.parse(resp.body);
+      const data = await resp.json();
       const { b_3, b_4 } = data?.data || {};
       if (b_3) parts.push(`buvid3=${b_3}`);
       if (b_4) parts.push(`buvid4=${b_4}`);
@@ -417,3 +318,116 @@ export default {
     return corsResponse(result);
   },
 };
+
+// ── Socket 降级方案（当 fetch 被 B 站 WAF 拦截时使用）──
+const MAX_RESPONSE_BYTES = 4 * 1024 * 1024;
+
+function concatChunks(chunks) {
+  const total = chunks.reduce((n, c) => n + c.length, 0);
+  const out = new Uint8Array(total);
+  let offset = 0;
+  for (const c of chunks) {
+    out.set(c, offset);
+    offset += c.length;
+  }
+  return out;
+}
+
+const CRLF = new TextEncoder().encode("\r\n");
+const CRLFCRLF = new TextEncoder().encode("\r\n\r\n");
+
+function bytesIndexOf(buf, needle, from = 0) {
+  outer: for (let i = from; i + needle.length <= buf.length; i++) {
+    for (let j = 0; j < needle.length; j++) {
+      if (buf[i + j] !== needle[j]) continue outer;
+    }
+    return i;
+  }
+  return -1;
+}
+
+function decodeChunkedBytes(buf) {
+  const out = [];
+  let pos = 0;
+  while (pos < buf.length) {
+    const lineEnd = bytesIndexOf(buf, CRLF, pos);
+    if (lineEnd === -1) break;
+    const sizeText = new TextDecoder().decode(buf.slice(pos, lineEnd)).trim();
+    const size = parseInt(sizeText, 16);
+    if (!Number.isFinite(size) || size <= 0) break;
+    const chunkStart = lineEnd + 2;
+    out.push(buf.slice(chunkStart, chunkStart + size));
+    pos = chunkStart + size + 2;
+  }
+  return concatChunks(out);
+}
+
+function parseHttpResponse(buf) {
+  const headerEnd = bytesIndexOf(buf, CRLFCRLF);
+  if (headerEnd === -1) throw new Error("B站返回了无效的 HTTP 响应");
+  const lines = new TextDecoder().decode(buf.slice(0, headerEnd)).split("\r\n");
+  const status = Number((lines[0].match(/^HTTP\/1\.[01]\s+(\d+)/) || [])[1]);
+  const headers = {};
+  for (let i = 1; i < lines.length; i++) {
+    const m = lines[i].match(/^([^:]+):\s*(.*)$/);
+    if (m) headers[m[1].toLowerCase()] = m[2];
+  }
+  let body = buf.slice(headerEnd + 4);
+  if ((headers["transfer-encoding"] || "").toLowerCase().includes("chunked")) {
+    body = decodeChunkedBytes(body);
+  }
+  return { status, headers, body: new TextDecoder().decode(body) };
+}
+
+async function socketRequest(rawUrl, { headers = {}, method = "GET" } = {}) {
+  const u = new URL(rawUrl);
+  const isHttps = u.protocol === "https:";
+  const port = Number(u.port) || (isHttps ? 443 : 80);
+  const socket = connect(
+    { hostname: u.hostname, port },
+    { secureTransport: isHttps ? "on" : "off", allowHalfOpen: true }
+  );
+  try {
+    const writer = socket.writable.getWriter();
+    const allHeaders = {
+      Host: u.host,
+      Connection: "close",
+      "Accept-Encoding": "identity",
+      ...headers,
+    };
+    const head =
+      `${method} ${u.pathname}${u.search} HTTP/1.1\r\n` +
+      Object.entries(allHeaders)
+        .map(([k, v]) => `${k}: ${v}`)
+        .join("\r\n") +
+      "\r\n\r\n";
+    await writer.write(new TextEncoder().encode(head));
+    const reader = socket.readable.getReader();
+    const chunks = [];
+    let total = 0;
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      chunks.push(value);
+      total += value.length;
+      if (total > MAX_RESPONSE_BYTES) throw new Error("B站响应过大");
+    }
+    return parseHttpResponse(concatChunks(chunks));
+  } finally {
+    try { socket.close(); } catch {}
+  }
+}
+
+async function socketApiGet(url, cookieStr) {
+  const headers = { ...BILI_HEADERS };
+  if (cookieStr) headers.Cookie = cookieStr;
+  const resp = await socketRequest(url, { headers });
+  if (resp.status !== 200) throw new Error(`B站接口请求失败: HTTP ${resp.status}`);
+  let data;
+  try {
+    data = JSON.parse(resp.body);
+  } catch {
+    throw new Error("B站接口返回了非 JSON 数据");
+  }
+  return data;
+}
