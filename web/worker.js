@@ -143,6 +143,16 @@ async function socketFetch(rawUrl, options = {}, redirects = 3) {
 let cachedBuvidCookie = "";
 let cachedBuvidAt = 0;
 
+function generateBuvid() {
+  const hex = () => Math.floor(Math.random() * 16).toString(16);
+  const uuid = Array.from({ length: 8 }, hex).join("") + "-" +
+    Array.from({ length: 4 }, hex).join("") + "-" +
+    Array.from({ length: 4 }, hex).join("") + "-" +
+    Array.from({ length: 4 }, hex).join("") + "-" +
+    Array.from({ length: 12 }, hex).join("");
+  return uuid;
+}
+
 async function getBuvidCookies() {
   if (cachedBuvidCookie && Date.now() - cachedBuvidAt < 10 * 60 * 1000) {
     return cachedBuvidCookie;
@@ -158,13 +168,24 @@ async function getBuvidCookies() {
       if (b_3) parts.push(`buvid3=${b_3}`);
       if (b_4) parts.push(`buvid4=${b_4}`);
     }
+    // 无论 SPI 是否成功，都生成保底标识
+    if (!parts.some(p => p.startsWith("buvid3"))) {
+      parts.push(`buvid3=${generateBuvid()}infoc`);
+    }
+    if (!parts.some(p => p.startsWith("buvid4"))) {
+      parts.push(`buvid4=${generateBuvid()}${Date.now()}-infoc`);
+    }
     const rand = () => Math.floor(Math.random() * 16).toString(16);
     parts.push(`b_nut=${Math.floor(Date.now() / 1000)}`);
     parts.push(`b_lsid=${Array.from({ length: 32 }, rand).join("")}`);
     cachedBuvidCookie = parts.join("; ");
     cachedBuvidAt = Date.now();
   } catch {
-    cachedBuvidCookie = "";
+    // SPI 接口失败时，完全用随机标识
+    const rand = () => Math.floor(Math.random() * 16).toString(16);
+    const now = Date.now();
+    cachedBuvidCookie = `buvid3=${generateBuvid()}infoc; buvid4=${generateBuvid()}${now}-infoc; b_nut=${Math.floor(now / 1000)}; b_lsid=${Array.from({ length: 32 }, rand).join("")}`;
+    cachedBuvidAt = now;
   }
   return cachedBuvidCookie;
 }
