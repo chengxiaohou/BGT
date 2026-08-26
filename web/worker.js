@@ -506,14 +506,16 @@ async function handleUpVideos(request) {
     }
 
     const vlist = data.data?.list?.vlist || [];
-    const videos = vlist.map((v) => ({
-      bvid: v.bvid,
-      title: v.title,
-      pic: v.pic,
-      created: v.created || v.pubdate,
-      length: v.length || v.duration || "",
-      play: v.play,
-    }));
+    const videos = vlist
+      .filter((v) => v.bvid) // 过滤掉无 BVID 的条目
+      .map((v) => ({
+        bvid: v.bvid,
+        title: (v.title || "").replace(/<[^>]+>/g, ""), // 清除搜索高亮标签
+        pic: v.pic,
+        created: v.created || v.pubdate,
+        length: v.length || v.duration || "",
+        play: v.play,
+      }));
     return corsResponse({ videos });
   } catch (err) {
     return corsResponse({ error: "获取视频列表出错: " + err.message }, 500);
