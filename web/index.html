@@ -1050,7 +1050,7 @@
                     const item = document.createElement('div');
                     item.className = 'video-item ' + statusClass;
                     item.innerHTML =
-                        '<img class="v-pic" src="' + (v.pic || '') + '" alt="" onerror="this.src=\'data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2238%22><rect fill=%22%23eee%22 width=%2260%22 height=%2238%22/></svg>\'">' +
+                        '<img class="v-pic" src="' + ((v.pic && v.pic.startsWith('//') ? 'https:' + v.pic : v.pic) || '') + '" alt="" referrerpolicy="no-referrer" onerror="this.src=\'data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2260%22 height=%2238%22><rect fill=%22%23eee%22 width=%2260%22 height=%2238%22/></svg>\'">' +
                         '<div class="v-info"><div class="v-title">' + escapeHtml(v.title) + '</div><div class="v-meta">' + dateStr + ' | ' + (v.length || '') + '</div></div>' +
                         '<span class="v-status ' + statusClass + '">' + statusText + '</span>';
                     item.onclick = function() { extractFromBvid(v.bvid, name, mid); };
