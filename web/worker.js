@@ -240,15 +240,24 @@ export default {
     if (urlObj.pathname === "/api/debug") {
       const bvid = urlObj.searchParams.get("bvid") || "BV1uT4y1P7CX";
       const cookieStr = await getBuvidCookies();
-      const results = { cookie: cookieStr };
+      const results = { cookie: cookieStr, bvid };
+      // 测试 socket
       try {
         const socketResp = await socketRequest(`https://api.bilibili.com/x/web-interface/view?bvid=${bvid}`, {
           headers: { ...BILI_HEADERS, Cookie: cookieStr },
         });
-        results.view_status = socketResp.status;
-        results.view_body = socketResp.body.slice(0, 500);
+        results.socket = { status: socketResp.status, body: socketResp.body.slice(0, 300) };
       } catch (e) {
-        results.view_error = e.message;
+        results.socket = { error: e.message };
+      }
+      // 测试 fetch
+      try {
+        const fetchResp = await fetch(`https://api.bilibili.com/x/web-interface/view?bvid=${bvid}`, {
+          headers: { ...BILI_HEADERS, Cookie: cookieStr },
+        });
+        results.fetch = { status: fetchResp.status, body: (await fetchResp.text()).slice(0, 300) };
+      } catch (e) {
+        results.fetch = { error: e.message };
       }
       return corsResponse(results);
     }
