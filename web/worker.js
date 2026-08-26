@@ -246,33 +246,25 @@ export default {
       const bvid = urlObj.searchParams.get("bvid") || "BV1uT4y1P7CX";
       const cookieStr = await getBuvidCookies();
       const results = { cookie: cookieStr, bvid };
-      // 测试 socket: view API
+      // 测试 socket: player API 无 cid
       try {
-        const socketResp = await socketRequest(`https://api.bilibili.com/x/web-interface/view?bvid=${bvid}`, {
+        const socketResp = await socketRequest(`https://api.bilibili.com/x/player/v2?bvid=${bvid}`, {
           headers: { ...BILI_HEADERS, Cookie: cookieStr },
         });
-        results.socket_view = { status: socketResp.status, body: socketResp.body.slice(0, 300) };
+        results.player_no_cid = { status: socketResp.status, body: socketResp.body.slice(0, 500) };
       } catch (e) {
-        results.socket_view = { error: e.message };
+        results.player_no_cid = { error: e.message };
       }
-      // 测试 socket: player API
+      // 测试 socket: player API 用返回的 cid
       try {
-        const cid = "1"; // 占位
-        const socketResp = await socketRequest(`https://api.bilibili.com/x/player/v2?bvid=${bvid}&cid=1`, {
+        const data = JSON.parse(results.player_no_cid?.body || "{}");
+        const cid = data?.data?.cid || "1";
+        const socketResp2 = await socketRequest(`https://api.bilibili.com/x/player/v2?bvid=${bvid}&cid=${cid}`, {
           headers: { ...BILI_HEADERS, Cookie: cookieStr },
         });
-        results.socket_player = { status: socketResp.status, body: socketResp.body.slice(0, 300) };
+        results.player_with_cid = { status: socketResp2.status, body: socketResp2.body.slice(0, 500) };
       } catch (e) {
-        results.socket_player = { error: e.message };
-      }
-      // 测试 socket: 视频页面
-      try {
-        const socketResp = await socketRequest(`https://www.bilibili.com/video/${bvid}`, {
-          headers: { ...BILI_HEADERS, Cookie: cookieStr },
-        });
-        results.socket_page = { status: socketResp.status, body: socketResp.body.slice(0, 200) };
-      } catch (e) {
-        results.socket_page = { error: e.message };
+        results.player_with_cid = { error: e.message };
       }
       return corsResponse(results);
     }
