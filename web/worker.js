@@ -260,7 +260,26 @@ export default {
         const socketResp = await socketRequest(`https://api.bilibili.com/x/player/v2?bvid=${bvid}&cid=1`, {
           headers: { ...BILI_HEADERS, Cookie: cookieStr },
         });
-        results.player_full = { status: socketResp.status, body: socketResp.body.slice(0, 5000) };
+        results.player_full_status = socketResp.status;
+        // 检查 player 完整响应中是否有 page 信息
+        const respBody = socketResp.status === 200 ? socketResp.body : "";
+        if (respBody) {
+          const data = JSON.parse(respBody);
+          const dd = data?.data || {};
+          results.player_keys = Object.keys(dd);
+          results.player_aid = dd.aid;
+          results.player_cid = dd.cid;
+          results.player_subtitles = dd.subtitle?.subtitles?.length || 0;
+          results.player_has_page = !!dd.pages;
+          results.player_page_count = dd.pages?.length;
+          // 检查是否有 pages 或 video_data
+          for (const key of ["pages", "video_data", "playlist", "video_list"]) {
+            if (dd[key]) {
+              results[`player_${key}_count`] = dd[key].length;
+              if (dd[key][0]) results[`player_${key}_0_cid`] = dd[key][0].cid;
+            }
+          }
+        }
       } catch (e) {
         results.player_full = { error: e.message };
       }
