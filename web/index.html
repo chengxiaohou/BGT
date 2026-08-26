@@ -703,6 +703,10 @@
         });
         updateCookieIndicator();
 
+        // ── UP 主管理 ──
+        const FOLLOWED_KEY = 'followed_ups';
+        const EXTRACTED_KEY = 'extracted_videos';
+
         // ── 初始化 UP 主列表 ──
         renderUpList();
 
@@ -867,8 +871,6 @@
         document.getElementById('url').addEventListener('keydown', function(e) { if (e.key === 'Enter') extract(); });
 
         // ── UP 主管理 ──
-        const FOLLOWED_KEY = 'followed_ups';
-        const EXTRACTED_KEY = 'extracted_videos';
         let _currentUpMid = null; // 当前结果对应的 UP 主 MID
 
         function getFollowedUps() {
