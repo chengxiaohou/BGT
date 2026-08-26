@@ -85,9 +85,17 @@
             width: 100%;
         }
         header {
-            text-align: center;
-            margin-bottom: 32px;
-            position: relative;
+            display: flex;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 8px;
+            margin-bottom: 24px;
+        }
+        header h1 .version {
+            font-size: 14px;
+            font-weight: 400;
+            color: var(--text-secondary);
+            margin-left: 8px;
         }
         header h1 {
             font-size: 28px;
@@ -96,13 +104,17 @@
         }
         header p {
             color: var(--text-secondary);
-            margin-top: 6px;
             font-size: 14px;
+            flex: 1;
+            min-width: 200px;
+        }
+        .header-actions {
+            display: flex;
+            gap: 6px;
+            flex-shrink: 0;
+            margin-left: auto;
         }
         .theme-toggle {
-            position: absolute;
-            right: 0;
-            top: 0;
             background: var(--toggle-bg);
             border: none;
             border-radius: 8px;
@@ -117,6 +129,54 @@
         .theme-toggle svg { display: block; }
         .theme-toggle .moon { color: #e8e8ed; }
         .theme-toggle .sun { color: var(--text); }
+        .settings-toggle {
+            background: var(--toggle-bg);
+            border: none;
+            border-radius: 8px;
+            padding: 8px 10px;
+            cursor: pointer;
+            line-height: 1;
+            transition: background 0.2s;
+            display: flex;
+            align-items: center;
+            color: var(--text);
+        }
+        .settings-toggle:hover { background: var(--toggle-hover); }
+        .settings-toggle svg { display: block; }
+        .modal-overlay {
+            display: none;
+            position: fixed;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(0,0,0,0.4);
+            z-index: 1000;
+            align-items: center;
+            justify-content: center;
+        }
+        .modal-overlay.active { display: flex; }
+        .modal {
+            background: var(--card-bg);
+            border-radius: 12px;
+            padding: 24px;
+            min-width: 360px;
+            max-width: 90vw;
+            box-shadow: 0 8px 30px rgba(0,0,0,0.2);
+        }
+        .modal-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 16px;
+        }
+        .modal-header h2 { font-size: 16px; font-weight: 600; color: var(--text); }
+        .modal-close {
+            background: none;
+            border: none;
+            cursor: pointer;
+            color: var(--text-secondary);
+            font-size: 20px;
+            padding: 4px;
+        }
+        .modal-close:hover { color: var(--text); }
 
         .card {
             background: var(--card-bg);
@@ -230,7 +290,7 @@
             font-size: 13px;
             padding: 16px;
             border-radius: 8px;
-            height: 240px;
+            height: 150px;
             overflow-y: auto;
             line-height: 1.6;
             white-space: pre-wrap;
@@ -274,6 +334,12 @@
             white-space: pre-wrap;
             word-break: break-all;
             transition: background 0.2s, border-color 0.2s;
+        }
+        .result-footer {
+            display: flex;
+            gap: 6px;
+            justify-content: center;
+            margin-top: 12px;
         }
 
         .error-banner {
@@ -320,25 +386,25 @@
 <body>
     <div class="container">
         <header>
-            <h1>B站字幕提取</h1>
-            <p>粘贴 B站视频链接，获取 AI 字幕 / CC 字幕</p>
-            <button class="theme-toggle" id="themeToggle" onclick="toggleTheme()" title="切换主题">
-                <svg id="themeIcon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                    <circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/>
-                </svg>
-            </button>
+            <h1>B站字幕提取 <span class="version">v1.0</span></h1>
+            <div class="header-actions">
+                <button class="settings-toggle" onclick="openSettings()" title="设置">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+                    </svg>
+                </button>
+                <button class="theme-toggle" id="themeToggle" onclick="toggleTheme()" title="切换主题">
+                    <svg id="themeIcon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/>
+                    </svg>
+                </button>
+            </div>
         </header>
 
         <div class="card">
             <div class="form-group">
                 <label for="url">B站视频链接</label>
                 <input type="text" id="url" placeholder="粘贴 B站视频链接，如 https://www.bilibili.com/video/BV1xx…" autofocus>
-            </div>
-            <div class="form-group">
-                <label for="cookies">Cookie 文件（可选）</label>
-                <input type="file" id="cookies" accept=".txt,.cookies">
-                <div class="hint">上传 B站登录 Cookie（Netscape 格式），可获取 AI 识别字幕。如没有可跳过，仅使用公开 CC 字幕。</div>
-                <div class="cookie-status" id="cookieStatus"></div>
             </div>
             <button class="btn btn-primary" id="extractBtn" onclick="extract()">提取字幕</button>
         </div>
@@ -353,22 +419,37 @@
             <div class="result-header">
                 <span class="result-title" id="resultTitle"></span>
                 <div class="result-actions">
-                    <button class="btn btn-secondary" onclick="download('txt')">下载 .txt</button>
-                    <button class="btn btn-secondary" onclick="download('srt')">下载 .srt</button>
                     <button class="btn btn-secondary" onclick="copyText()">复制</button>
                 </div>
             </div>
             <div class="result-text" id="resultText">处理完成，暂无文本内容</div>
+            <div class="result-footer">
+                <button class="btn btn-secondary" onclick="download('txt')">下载 .txt</button>
+                <button class="btn btn-secondary" onclick="download('srt')">下载 .srt</button>
+            </div>
+        </div>
+
+        <div class="modal-overlay" id="settingsModal" onclick="closeSettings(event)">
+            <div class="modal">
+                <div class="modal-header">
+                    <h2>设置</h2>
+                    <button class="modal-close" onclick="closeSettings()">&times;</button>
+                </div>
+                <div class="form-group">
+                    <label for="cookies">Cookie 文件</label>
+                    <input type="file" id="cookies" accept=".txt,.cookies">
+                    <div class="hint">上传 B站登录 Cookie（Netscape 格式），可获取 AI 识别字幕</div>
+                    <div class="cookie-status" id="cookieStatus"></div>
+                </div>
+            </div>
         </div>
 
         <footer>
-            <span class="version">v0.1.1</span>
-            <a href="https://github.com/chengxiaohou/BGT" target="_blank">Bili-Subtitles（GitHub 仓库）</a>
         </footer>
     </div>
 
     <script>
-        // ── 配置：部署时替换为实际 Worker 地址 ──
+        // ── 配置：部署时由 GitHub Actions 替换为真实地址 ──
         const WORKER_URL = "__WORKER_URL__";
 
         let _result = null;
@@ -392,6 +473,15 @@
         }
         function toggleTheme() { applyTheme(getTheme() === 'dark' ? 'light' : 'dark'); }
         applyTheme(getTheme());
+
+        // ── 设置弹窗 ──
+        function openSettings() {
+            document.getElementById('settingsModal').classList.add('active');
+        }
+        function closeSettings(e) {
+            if (e && e.target !== e.currentTarget) return;
+            document.getElementById('settingsModal').classList.remove('active');
+        }
 
         // ── Cookie 持久化 ──
         const COOKIE_KEY = 'bili_cookie';
@@ -490,8 +580,33 @@
                 return;
             }
 
-            const url = document.getElementById('url').value.trim();
-            if (!url) { showError('请输入 B站视频链接'); document.getElementById('url').focus(); return; }
+            const urlInput = document.getElementById('url');
+            let url = urlInput.value.trim();
+            if (!url) {
+                log('输入框为空，尝试读取剪贴板...', 'info');
+                try {
+                    if (!navigator.clipboard || !navigator.clipboard.readText) {
+                        showError('输入框为空，且浏览器不支持读取剪贴板。请手动粘贴视频链接');
+                        urlInput.focus();
+                        return;
+                    }
+                    const text = await navigator.clipboard.readText();
+                    url = text.trim();
+                    if (url) {
+                        urlInput.value = url;
+                        log('已从剪贴板读取链接，开始提取', 'info');
+                    } else {
+                        showError('剪贴板为空，请复制 B站视频链接后重试');
+                        urlInput.focus();
+                        return;
+                    }
+                } catch(e) {
+                    log('读取剪贴板失败: ' + e.message, 'warn');
+                    showError('输入框为空，且无法读取剪贴板。请手动粘贴视频链接');
+                    urlInput.focus();
+                    return;
+                }
+            }
 
             hideError();
             clearLog();

@@ -365,7 +365,11 @@ export default {
       } else {
         messages.push("未发现可用字幕");
         result.success = false;
-        result.error = "该视频没有可用的字幕";
+        if (hasUserCookies) {
+          result.error = "该视频没有可用的字幕";
+        } else {
+          result.error = "未发现公开字幕，可上传 B站 Cookie 获取 AI 识别字幕";
+        }
       }
     } catch (err) {
       result.success = false;
