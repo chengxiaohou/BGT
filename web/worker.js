@@ -15,30 +15,27 @@ const SUBTITLE_PRIORITY = ["zh-CN", "zh-Hans", "zh", "ai-zh", "zh-Hant"];
 
 // 请求 B 站 JSON 接口（使用 fetch，如遇 412 则自动降级为 socket）
 async function biliApiGet(url, cookieStr) {
-  let resp;
+  // 先尝试 socket（绕过 Cloudflare 的 CF-* 头），失败再试 fetch
+  let lastError;
   try {
-    resp = await fetch(url, {
+    const data = await socketApiGet(url, cookieStr);
+    if (data.code !== 0) lastError = data.message;
+    else return data;
+  } catch (e) {
+    lastError = e.message;
+  }
+  // socket 失败时，用 fetch 兜底
+  try {
+    const resp = await fetch(url, {
       headers: { ...BILI_HEADERS, Cookie: cookieStr },
     });
-  } catch {
-    resp = null;
+    if (resp.status !== 200) throw new Error(`HTTP ${resp.status}`);
+    const data = await resp.json();
+    if (data.code !== 0) throw new Error(data.message || "接口返回错误");
+    return data;
+  } catch(e) {
+    throw new Error(lastError || e.message);
   }
-  // 如果 fetch 返回 412（WAF 拦截），改用 socket 重试
-  if (!resp || resp.status === 412) {
-    // socketApiGet 直接返回解析后的 JSON
-    return await socketApiGet(url, cookieStr);
-  }
-  if (resp.status !== 200) {
-    const text = await resp.text().catch(() => "");
-    throw new Error(`B站接口请求失败: HTTP ${resp.status}${text ? " - " + text.slice(0, 100) : ""}`);
-  }
-  let data;
-  try {
-    data = await resp.json();
-  } catch {
-    throw new Error("B站接口返回了非 JSON 数据");
-  }
-  return data;
 }
 
 // 获取匿名设备标识（buvid3/buvid4/b_nut/b_lsid），结果缓存 10 分钟
@@ -60,13 +57,27 @@ async function getBuvidCookies() {
     return cachedBuvidCookie;
   }
   try {
-    const resp = await fetch("https://api.bilibili.com/x/frontend/finger/spi", {
-      headers: BILI_HEADERS,
-    });
+    // 优先用 socket 调 SPI 接口（避免 CF-* 头），失败再用 fetch
+    let spiData = null;
+    try {
+      const socketResp = await socketRequest("https://api.bilibili.com/x/frontend/finger/spi", {
+        headers: BILI_HEADERS,
+      });
+      if (socketResp.status === 200) {
+        spiData = JSON.parse(socketResp.body);
+      }
+    } catch {}
+    if (!spiData) {
+      try {
+        const fetchResp = await fetch("https://api.bilibili.com/x/frontend/finger/spi", {
+          headers: BILI_HEADERS,
+        });
+        if (fetchResp.status === 200) spiData = await fetchResp.json();
+      } catch {}
+    }
     const parts = [];
-    if (resp.status === 200) {
-      const data = await resp.json();
-      const { b_3, b_4 } = data?.data || {};
+    if (spiData?.data) {
+      const { b_3, b_4 } = spiData.data;
       if (b_3) parts.push(`buvid3=${b_3}`);
       if (b_4) parts.push(`buvid4=${b_4}`);
     }
@@ -75,7 +86,7 @@ async function getBuvidCookies() {
       parts.push(`buvid3=${generateBuvid()}infoc`);
     }
     if (!parts.some(p => p.startsWith("buvid4"))) {
-      parts.push(`buvid4=${generateBuvid()}${Date.now()}-infoc`);
+      parts.push(`buvid4=FD${generateBuvid()}${Date.now()}-infoc`);
     }
     const rand = () => Math.floor(Math.random() * 16).toString(16);
     parts.push(`b_nut=${Math.floor(Date.now() / 1000)}`);
@@ -83,10 +94,9 @@ async function getBuvidCookies() {
     cachedBuvidCookie = parts.join("; ");
     cachedBuvidAt = Date.now();
   } catch {
-    // SPI 接口失败时，完全用随机标识
     const rand = () => Math.floor(Math.random() * 16).toString(16);
     const now = Date.now();
-    cachedBuvidCookie = `buvid3=${generateBuvid()}infoc; buvid4=${generateBuvid()}${now}-infoc; b_nut=${Math.floor(now / 1000)}; b_lsid=${Array.from({ length: 32 }, rand).join("")}`;
+    cachedBuvidCookie = `buvid3=${generateBuvid()}infoc; buvid4=FD${generateBuvid()}${now}-infoc; b_nut=${Math.floor(now / 1000)}; b_lsid=${Array.from({ length: 32 }, rand).join("")}`;
     cachedBuvidAt = now;
   }
   return cachedBuvidCookie;
@@ -115,21 +125,6 @@ function extractBvid(text) {
   const match = candidate.match(/BV[0-9A-Za-z]{10}/);
   if (!match) throw new Error("未能识别出 B站视频链接");
   return match[0];
-}
-
-// 请求 B 站 JSON 接口并统一解析
-async function biliApiGet(url, cookieStr) {
-  const headers = { ...BILI_HEADERS };
-  if (cookieStr) headers.Cookie = cookieStr;
-  const resp = await socketFetch(url, { headers });
-  if (resp.status !== 200) throw new Error(`B站接口请求失败: HTTP ${resp.status}`);
-  let data;
-  try {
-    data = JSON.parse(resp.body);
-  } catch {
-    throw new Error("B站接口返回了非 JSON 数据");
-  }
-  return data;
 }
 
 async function getVideoInfo(bvid, cookieStr) {
@@ -404,7 +399,6 @@ async function socketRequest(rawUrl, { headers = {}, method = "GET" } = {}) {
     const allHeaders = {
       Host: u.host,
       Connection: "close",
-      "Accept-Encoding": "identity",
       ...headers,
     };
     const head =
