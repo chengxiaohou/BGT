@@ -301,6 +301,9 @@ export default {
     if (urlObj.pathname === "/api/up-videos") {
       return handleUpVideos(request);
     }
+    if (urlObj.pathname === "/api/img-proxy") {
+      return handleImgProxy(request);
+    }
 
     return corsResponse({ error: "路径不存在" }, 404);
   },
@@ -504,6 +507,44 @@ async function handleUpVideos(request) {
     return corsResponse({ videos });
   } catch (err) {
     return corsResponse({ error: "获取视频列表出错: " + err.message }, 500);
+  }
+}
+
+// ── 图片代理（解决 B站图床 CORS 限制）──
+async function handleImgProxy(request) {
+  try {
+    const urlObj = new URL(request.url);
+    const imgUrl = urlObj.searchParams.get("url");
+    if (!imgUrl) return corsResponse({ error: "缺少 url 参数" }, 400);
+
+    // 只允许代理 B站图床
+    if (!imgUrl.match(/^https?:\/\/(i\d+\.hdslb\.com|i\d+\.hdslb\.net)\//)) {
+      return corsResponse({ error: "不支持的图片地址" }, 400);
+    }
+
+    const resp = await fetch(imgUrl, {
+      headers: {
+        "User-Agent": BILI_HEADERS["User-Agent"],
+        "Referer": "https://www.bilibili.com/",
+        "Accept": "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8",
+      },
+    });
+
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+
+    const contentType = resp.headers.get("Content-Type") || "image/jpeg";
+    const buffer = await resp.arrayBuffer();
+
+    return new Response(buffer, {
+      headers: {
+        "Content-Type": contentType,
+        "Access-Control-Allow-Origin": "*",
+        "Cache-Control": "public, max-age=86400", // 缓存 1 天
+        "Content-Length": buffer.byteLength.toString(),
+      },
+    });
+  } catch (err) {
+    return corsResponse({ error: "图片加载失败: " + err.message }, 500);
   }
 }
 
