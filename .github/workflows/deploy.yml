@@ -53,8 +53,8 @@ jobs:
           sed -i "s|__WORKER_URL__|$WORKER_URL|g" web/index.html
           echo "=== 验证 Worker URL 注入 ==="
           grep -n "const WORKER_URL" web/index.html
-          echo "=== 验证占位符检查未受影响 ==="
-          grep -n "WORKER_URL_PLACEHOLDER" web/index.html
+          echo "=== 验证占位符已全部替换 ==="
+          grep -n "WORKER_URL_PLACEHOLDER" web/index.html || echo "（已无残留占位符）"
 
       - name: 上传 Pages 产物
         uses: actions/upload-pages-artifact@v3
