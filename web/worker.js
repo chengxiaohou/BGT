@@ -238,17 +238,19 @@ export default {
 
     // 调试端点：测试 SPI 接口
     if (urlObj.pathname === "/api/debug") {
+      const bvid = urlObj.searchParams.get("bvid") || "BV1uT4y1P7CX";
+      const cookieStr = await getBuvidCookies();
+      const results = { cookie: cookieStr };
       try {
-        const socketResp = await socketRequest("https://api.bilibili.com/x/frontend/finger/spi", {
-          headers: BILI_HEADERS,
+        const socketResp = await socketRequest(`https://api.bilibili.com/x/web-interface/view?bvid=${bvid}`, {
+          headers: { ...BILI_HEADERS, Cookie: cookieStr },
         });
-        return corsResponse({
-          socket_status: socketResp.status,
-          socket_body: socketResp.body.slice(0, 500),
-        });
+        results.view_status = socketResp.status;
+        results.view_body = socketResp.body.slice(0, 500);
       } catch (e) {
-        return corsResponse({ error: e.message }, 500);
+        results.view_error = e.message;
       }
+      return corsResponse(results);
     }
 
     if (request.method !== "POST") {
