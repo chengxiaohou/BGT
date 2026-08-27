@@ -414,7 +414,6 @@ async function handleUpVideos(request) {
   try {
     const body = await request.json();
     const mid = body.mid;
-    const name = body.name || "";
     if (!mid) return corsResponse({ error: "缺少 UP 主 ID" }, 400);
 
     // 检查缓存
@@ -427,62 +426,38 @@ async function handleUpVideos(request) {
     let data = null;
     const buvid = await getBuvidCookies();
 
-    // 并行尝试两种方式，谁先返回有效数据就用谁
-    const attempts = [];
-
-    // 方式1: 空间 API（socket 直连）
-    attempts.push((async () => {
+    // 空间 API（socket 直连 + fetch 兜底）
+    try {
+      // 先试 socket
+      const resp = await socketRequest(
+        `https://api.bilibili.com/x/space/arc/search?mid=${mid}&ps=10&pn=1&order=pubdate`,
+        { headers: { ...BILI_HEADERS, Cookie: buvid } }
+      );
+      if (resp.status === 200) {
+        const json = JSON.parse(resp.body);
+        if (json.code === 0 && json.data?.list?.vlist?.length) {
+          data = json;
+        }
+      }
+    } catch {}
+    // socket 失败，再用 fetch 试一次
+    if (!data) {
       try {
-        const resp = await socketRequest(
+        const resp = await fetch(
           `https://api.bilibili.com/x/space/arc/search?mid=${mid}&ps=10&pn=1&order=pubdate`,
           { headers: { ...BILI_HEADERS, Cookie: buvid } }
         );
         if (resp.status === 200) {
-          const json = JSON.parse(resp.body);
+          const json = await resp.json();
           if (json.code === 0 && json.data?.list?.vlist?.length) {
-            return json;
+            data = json;
           }
         }
       } catch {}
-      return null;
-    })());
-
-    // 方式2: 搜索 API（仅当有名称时）
-    if (name) {
-      attempts.push((async () => {
-        try {
-          const searchData = await biliApiGet(
-            `https://api.bilibili.com/x/web-interface/search/type?search_type=video&keyword=${encodeURIComponent(name)}&ps=50&pn=1`,
-            buvid
-          );
-          if (searchData && searchData.code === 0 && searchData.data?.result) {
-            // 按 mid 过滤（只保留该 UP 主的视频），再按发布时间排序
-            let filtered = searchData.data.result.filter(v => v.bvid && v.mid === mid);
-            if (filtered.length < 3) {
-              // mid 过滤后太少，不限定 mid 再试一次
-              filtered = searchData.data.result.filter(v => v.bvid);
-            }
-            filtered.sort((a, b) => (b.pubdate || 0) - (a.pubdate || 0));
-            if (filtered.length > 0) {
-              return { code: 0, data: { list: { vlist: filtered.slice(0, 10) } } };
-            }
-          }
-        } catch {}
-        return null;
-      })());
-    }
-
-    // 等待所有尝试，取第一个成功的结果
-    const results = await Promise.allSettled(attempts);
-    for (const r of results) {
-      if (r.status === 'fulfilled' && r.value) {
-        data = r.value;
-        break;
-      }
     }
 
     if (!data) {
-      return corsResponse({ error: "获取视频列表失败，请稍后重试" }, 400);
+      return corsResponse({ error: "获取视频列表失败，该 UP 主可能未公开投稿或接口超时" }, 400);
     }
 
     const vlist = data.data?.list?.vlist || [];

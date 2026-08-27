@@ -419,13 +419,26 @@
 
         footer {
             text-align: center;
-            padding: 24px;
+            padding: 16px 24px 24px;
             color: var(--footer-link);
             font-size: 12px;
         }
-        footer .version { margin-right: 8px; }
         footer a { color: var(--footer-link); text-decoration: underline; transition: color 0.2s; }
         footer a:hover { color: var(--footer-link-hover); }
+        .reset-btn {
+            background: none;
+            border: 1px solid var(--input-border);
+            border-radius: 8px;
+            cursor: pointer;
+            color: var(--text-secondary);
+            padding: 6px 10px;
+            font-size: 12px;
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            transition: color 0.2s, border-color 0.2s;
+        }
+        .reset-btn:hover { color: var(--log-error); border-color: var(--log-error); }
 
         /* ── UP 主关注 ── */
         .up-section {
@@ -554,6 +567,7 @@
             .container { padding: 20px 12px; }
             .card { padding: 16px; }
             header h1 { font-size: 22px; }
+            .video-list-modal .modal { min-width: unset; }
         }
     </style>
 </head>
@@ -617,7 +631,7 @@
             </button>
         </div>
 
-        <span class="version">v1.1.0</span>
+        <span class="version">v1.1.2</span>
 
         <div class="modal-overlay" id="settingsModal" onclick="closeSettings(event)">
             <div class="modal">
@@ -637,6 +651,15 @@
                     <input type="text" id="gistToken" placeholder="GitHub Token（ghp_ 开头，需 gist 权限）" onchange="saveGistSettings()">
                     <input type="text" id="gistId" placeholder="Gist ID（可选，留空则上传时自动创建）" onchange="saveGistSettings()" style="margin-top:6px">
                     <div class="hint" style="margin-top:6px">用于同步关注的 UP 主和提取记录到多台设备</div>
+                </div>
+                <div class="settings-divider"></div>
+                <div class="form-group">
+                    <div style="text-align:center">
+                        <button class="reset-btn" onclick="resetAllData()" title="清除所有持久化数据">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/><line x1="10" x2="10" y1="11" y2="17"/><line x1="14" x2="14" y1="11" y2="17"/></svg>
+                            重置数据
+                        </button>
+                    </div>
                 </div>
             </div>
         </div>
@@ -1204,6 +1227,24 @@
             document.getElementById('url').value = 'https://www.bilibili.com/video/' + bvid;
             await extract();
         }
+
+        // ── 重置所有数据 ──
+        function resetAllData() {
+            if (!confirm('确定要清除所有持久化数据吗？\n\n将清除：\n• 关注的 UP 主列表\n• 提取历史记录\n• Cookie 设置\n• Gist 配置\n\n此操作不可撤销！')) return;
+            localStorage.removeItem(FOLLOWED_KEY);
+            localStorage.removeItem(EXTRACTED_KEY);
+            localStorage.removeItem(COOKIE_KEY);
+            localStorage.removeItem(GIST_TOKEN_KEY);
+            localStorage.removeItem(GIST_ID_KEY);
+            document.getElementById('cookies').value = '';
+            document.getElementById('gistToken').value = '';
+            document.getElementById('gistId').value = '';
+            updateCookieIndicator();
+            renderUpList();
+            closeSettings();
+            log('所有数据已清除', 'info');
+        }
+
     </script>
 </body>
 </html>
