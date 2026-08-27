@@ -766,6 +766,7 @@
             const data = {
                 followed_ups: getFollowedUps(),
                 extracted_videos: getExtractedVideos(),
+                cookies: getSavedCookie() || '',
             };
             const content = JSON.stringify(data, null, 2);
             const gistId = localStorage.getItem(GIST_ID_KEY);
@@ -803,6 +804,11 @@
                 const data = JSON.parse(file.content);
                 if (data.followed_ups) localStorage.setItem(FOLLOWED_KEY, JSON.stringify(data.followed_ups));
                 if (data.extracted_videos) localStorage.setItem(EXTRACTED_KEY, JSON.stringify(data.extracted_videos));
+                if (data.cookies) {
+                    localStorage.setItem(COOKIE_KEY, data.cookies);
+                    document.getElementById('cookies').value = data.cookies;
+                    updateCookieIndicator();
+                }
                 renderUpList();
                 log('Gist 数据已恢复，共 ' + (data.followed_ups?.length || 0) + ' 个 UP 主', 'info');
             } catch (e) { log('Gist 下载出错: ' + e.message, 'error'); }
