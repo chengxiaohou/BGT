@@ -631,7 +631,7 @@
             </button>
         </div>
 
-        <span class="version">v1.1.4</span>
+        <span class="version">v1.1.5</span>
 
         <div class="modal-overlay" id="settingsModal" onclick="closeSettings(event)">
             <div class="modal">
@@ -1143,7 +1143,7 @@
                 const resp = await fetch(WORKER_URL + '/api/search-up', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ keyword })
+                    body: JSON.stringify({ keyword, cookie: getSavedCookie() || '' })
                 });
                 const data = await resp.json();
                 if (data.error) {
@@ -1181,7 +1181,7 @@
                 const resp = await fetch(WORKER_URL + '/api/up-videos', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ mid, name })
+                    body: JSON.stringify({ mid, name, cookie: getSavedCookie() || '' })
                 });
                 if (!resp.ok) {
                     body.innerHTML = '<div style="text-align:center;padding:24px;color:var(--log-error)">HTTP ' + resp.status + ': ' + resp.statusText + '</div>';

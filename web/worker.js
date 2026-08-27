@@ -492,23 +492,23 @@ async function handleSearchUp(request) {
       return corsResponse({ error: "未找到该 UP 主" }, 404);
     }
 
-    // 搜索 UP 主名称
-    const searchData = await biliApiGet(
-      `https://api.bilibili.com/x/web-interface/search/all/v2?keyword=${encodeURIComponent(keyword)}`,
-      ""
-    );
-    if (searchData.code !== 0) {
-      return corsResponse({ error: "搜索失败: " + (searchData.message || "未知错误") }, 400);
+    // 搜索 UP 主名称（search API 需 wbi 签名，否则被 -412 拦截）
+    const userCookie = (body.cookie || "").trim();
+    let wbi;
+    try { wbi = await getWbiKeys(userCookie); }
+    catch { wbi = null; }
+    let searchData = null;
+    if (wbi) {
+      const signedQuery = encWbi({ keyword, search_type: "bili_user" }, wbi.img_key, wbi.sub_key);
+      const url = `https://api.bilibili.com/x/web-interface/search/type?${signedQuery}`;
+      try { searchData = await biliApiGet(url, userCookie); }
+      catch (e) { searchData = null; }
     }
-    const results = searchData.data?.result || [];
-    for (const r of results) {
-      if (r.result_type === "bili_user" && r.data?.length) {
-        const u = r.data[0];
-        return corsResponse({
-          mid: u.mid,
-          name: u.uname,
-          avatar: u.upic,
-        });
+    if (searchData && searchData.code === 0) {
+      const list = searchData.data?.result || [];
+      if (list.length) {
+        const u = list[0];
+        return corsResponse({ mid: u.mid, name: u.uname, avatar: u.upic });
       }
     }
     return corsResponse({ error: "未找到该 UP 主，请检查名称是否正确" }, 404);
@@ -531,39 +531,46 @@ async function handleUpVideos(request) {
       return corsResponse({ videos: cached.videos });
     }
 
-    let data = null;
-    const buvid = await getBuvidCookies();
-    const wbi = await getWbiKeys(buvid);
-    const signedQuery = encWbi({ mid, ps: 10, pn: 1, order: "pubdate", w_webid: "0" }, wbi.img_key, wbi.sub_key);
-    const spaceUrl = `https://api.bilibili.com/x/space/wbi/arc/search?${signedQuery}`;
-    const spaceHeaders = { ...BILI_HEADERS, Cookie: buvid, Buvid: buvid.split("; ")[0].split("=")[1] };
+    const userCookie = (body.cookie || "").trim();
+    const wbi = await getWbiKeys(userCookie);
 
+    // 依次尝试：真实用户 Cookie > 纯请求头（最不易触发风控）> 匿名 buvid
+    const strategies = [];
+    if (userCookie) strategies.push({ label: "user", headers: { ...BILI_HEADERS, Cookie: userCookie } });
+    strategies.push({ label: "plain", headers: { ...BILI_HEADERS } });
+    strategies.push({ label: "buvid", headers: { ...BILI_HEADERS, Cookie: await getBuvidCookies() } });
+
+    let data = null;
     let debug = "";
-    // 空间 API（socket 直连 + fetch 兜底）
-    try {
-      // 先试 socket
-      const resp = await socketRequest(spaceUrl, { headers: spaceHeaders });
-      debug += "socket status=" + resp.status + " body=" + String(resp.body).slice(0, 200) + " || ";
-      if (resp.status === 200) {
-        const json = JSON.parse(resp.body);
-        if (json.code === 0 && json.data?.list?.vlist?.length) {
-          data = json;
-        }
-      }
-    } catch (e) { debug += "socket throw=" + e.message + " || "; }
-    // socket 失败，再用 fetch 试一次
-    if (!data) {
-      try {
-        const resp = await fetch(spaceUrl, { headers: spaceHeaders });
-        const txt = await resp.text();
-        debug += "fetch status=" + resp.status + " body=" + txt.slice(0, 200);
-        if (resp.status === 200) {
-          const json = JSON.parse(txt);
-          if (json.code === 0 && json.data?.list?.vlist?.length) {
-            data = json;
+    for (const s of strategies) {
+      const signedQuery = encWbi({ mid, ps: 10, pn: 1, order: "pubdate", w_webid: "0" }, wbi.img_key, wbi.sub_key);
+      const spaceUrl = `https://api.bilibili.com/x/space/wbi/arc/search?${signedQuery}`;
+      // socket 直连
+      if (!data) {
+        try {
+          const resp = await socketRequest(spaceUrl, { headers: s.headers });
+          debug += `[${s.label}:socket ${resp.status}] `;
+          if (resp.status === 200) {
+            const json = JSON.parse(resp.body);
+            if (json.code === 0 && json.data?.list?.vlist?.length) data = json;
+            else debug += `code=${json.code} `;
           }
-        }
-      } catch (e) { debug += " | fetch throw=" + e.message; }
+        } catch (e) { debug += `[${s.label}:socket ${e.message}] `; }
+      }
+      // fetch 兜底
+      if (!data) {
+        try {
+          const resp = await fetch(spaceUrl, { headers: s.headers });
+          const txt = await resp.text();
+          debug += `[${s.label}:fetch ${resp.status}] `;
+          if (resp.status === 200) {
+            const json = JSON.parse(txt);
+            if (json.code === 0 && json.data?.list?.vlist?.length) data = json;
+            else debug += `code=${json.code} `;
+          }
+        } catch (e) { debug += `[${s.label}:fetch ${e.message}] `; }
+      }
+      if (data) break;
     }
 
     if (!data) {
