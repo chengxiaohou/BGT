@@ -158,8 +158,19 @@ async function getWbiKeys(cookieStr) {
   if (cachedWbi && Date.now() - cachedWbiAt < 30 * 60 * 1000) {
     return cachedWbi;
   }
-  const data = await biliApiGet("https://api.bilibili.com/x/web-interface/nav", cookieStr || "");
-  if (data.code !== 0 || !data.data?.wbi_img) {
+  // nav 接口未登录时 code=-101，但 wbi_img 仍会返回，因此需忽略 code 校验直接读取
+  async function fetchNav() {
+    const url = "https://api.bilibili.com/x/web-interface/nav";
+    try {
+      const d = await socketApiGet(url, cookieStr || "");
+      if (d?.data?.wbi_img) return d;
+    } catch {}
+    const resp = await fetch(url, { headers: { ...BILI_HEADERS, Cookie: cookieStr || "" } });
+    if (resp.status !== 200) throw new Error("获取 wbi 密钥失败");
+    return await resp.json();
+  }
+  const data = await fetchNav();
+  if (!data?.data?.wbi_img) {
     throw new Error("获取 wbi 密钥失败");
   }
   const { img_url, sub_url } = data.data.wbi_img;
