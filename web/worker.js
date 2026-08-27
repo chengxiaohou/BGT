@@ -537,32 +537,36 @@ async function handleUpVideos(request) {
     const signedQuery = encWbi({ mid, ps: 10, pn: 1, order: "pubdate" }, wbi.img_key, wbi.sub_key);
     const spaceUrl = `https://api.bilibili.com/x/space/arc/search?${signedQuery}`;
 
+    let debug = "";
     // 空间 API（socket 直连 + fetch 兜底）
     try {
       // 先试 socket
       const resp = await socketRequest(spaceUrl, { headers: { ...BILI_HEADERS, Cookie: buvid } });
+      debug += "socket status=" + resp.status + " body=" + String(resp.body).slice(0, 200) + " || ";
       if (resp.status === 200) {
         const json = JSON.parse(resp.body);
         if (json.code === 0 && json.data?.list?.vlist?.length) {
           data = json;
         }
       }
-    } catch {}
+    } catch (e) { debug += "socket throw=" + e.message + " || "; }
     // socket 失败，再用 fetch 试一次
     if (!data) {
       try {
         const resp = await fetch(spaceUrl, { headers: { ...BILI_HEADERS, Cookie: buvid } });
+        const txt = await resp.text();
+        debug += "fetch status=" + resp.status + " body=" + txt.slice(0, 200);
         if (resp.status === 200) {
-          const json = await resp.json();
+          const json = JSON.parse(txt);
           if (json.code === 0 && json.data?.list?.vlist?.length) {
             data = json;
           }
         }
-      } catch {}
+      } catch (e) { debug += " | fetch throw=" + e.message; }
     }
 
     if (!data) {
-      return corsResponse({ error: "获取视频列表失败，该 UP 主可能未公开投稿或接口超时" }, 400);
+      return corsResponse({ error: "获取视频列表失败", debug }, 400);
     }
 
     const vlist = data.data?.list?.vlist || [];
