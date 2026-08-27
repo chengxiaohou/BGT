@@ -534,14 +534,15 @@ async function handleUpVideos(request) {
     let data = null;
     const buvid = await getBuvidCookies();
     const wbi = await getWbiKeys(buvid);
-    const signedQuery = encWbi({ mid, ps: 10, pn: 1, order: "pubdate" }, wbi.img_key, wbi.sub_key);
-    const spaceUrl = `https://api.bilibili.com/x/space/arc/search?${signedQuery}`;
+    const signedQuery = encWbi({ mid, ps: 10, pn: 1, order: "pubdate", w_webid: "0" }, wbi.img_key, wbi.sub_key);
+    const spaceUrl = `https://api.bilibili.com/x/space/wbi/arc/search?${signedQuery}`;
+    const spaceHeaders = { ...BILI_HEADERS, Cookie: buvid, Buvid: buvid.split("; ")[0].split("=")[1] };
 
     let debug = "";
     // 空间 API（socket 直连 + fetch 兜底）
     try {
       // 先试 socket
-      const resp = await socketRequest(spaceUrl, { headers: { ...BILI_HEADERS, Cookie: buvid } });
+      const resp = await socketRequest(spaceUrl, { headers: spaceHeaders });
       debug += "socket status=" + resp.status + " body=" + String(resp.body).slice(0, 200) + " || ";
       if (resp.status === 200) {
         const json = JSON.parse(resp.body);
@@ -553,7 +554,7 @@ async function handleUpVideos(request) {
     // socket 失败，再用 fetch 试一次
     if (!data) {
       try {
-        const resp = await fetch(spaceUrl, { headers: { ...BILI_HEADERS, Cookie: buvid } });
+        const resp = await fetch(spaceUrl, { headers: spaceHeaders });
         const txt = await resp.text();
         debug += "fetch status=" + resp.status + " body=" + txt.slice(0, 200);
         if (resp.status === 200) {
